@@ -2,6 +2,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 
 import 'firebase_options.dart';
+import 'screens/auth_gate.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -43,7 +44,7 @@ class ExpenseTrackerApp extends StatelessWidget {
         ),
       ),
       themeMode: ThemeMode.system,
-      home: const SetupSuccessScreen(),
+      home: const AuthGate(),
     );
   }
 }
@@ -56,20 +57,14 @@ class SetupSuccessScreen extends StatelessWidget {
     final colors = Theme.of(context).colorScheme;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Expense Tracker'),
-      ),
+      appBar: AppBar(title: const Text('Expense Tracker')),
       body: Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(
-                Icons.check_circle_outline,
-                size: 72,
-                color: colors.primary,
-              ),
+              Icon(Icons.check_circle_outline, size: 72, color: colors.primary),
               const SizedBox(height: 20),
               Text(
                 'Firebase initialized!',
