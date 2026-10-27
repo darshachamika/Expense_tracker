@@ -57,22 +57,22 @@ class DefaultFirebaseOptions {
     projectId: 'darsha-expense-tracker-2-79e3c',
     storageBucket: 'darsha-expense-tracker-2-79e3c.firebasestorage.app',
   );
-
   static const FirebaseOptions ios = FirebaseOptions(
     apiKey: 'AIzaSyB2v985y7cVjqTgxEy89Sdlyb0psdlh6QY',
     appId: '1:710924012952:ios:b16cd990097c963db56fed',
     messagingSenderId: '710924012952',
     projectId: 'darsha-expense-tracker-2-79e3c',
     storageBucket: 'darsha-expense-tracker-2-79e3c.firebasestorage.app',
+    iosClientId: '710924012952-l83qm58q8u420tgd8rjudj2sabgploug.apps.googleusercontent.com',
     iosBundleId: 'com.example.expenseTracker',
   );
-
   static const FirebaseOptions macos = FirebaseOptions(
     apiKey: 'AIzaSyB2v985y7cVjqTgxEy89Sdlyb0psdlh6QY',
     appId: '1:710924012952:ios:b16cd990097c963db56fed',
     messagingSenderId: '710924012952',
     projectId: 'darsha-expense-tracker-2-79e3c',
     storageBucket: 'darsha-expense-tracker-2-79e3c.firebasestorage.app',
+    iosClientId: '710924012952-l83qm58q8u420tgd8rjudj2sabgploug.apps.googleusercontent.com',
     iosBundleId: 'com.example.expenseTracker',
   );
 
