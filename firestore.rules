@@ -1,0 +1,65 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isOwner(userId) {
+      return request.auth != null
+          && request.auth.uid == userId;
+    }
+
+    function validExpense() {
+      let data = request.resource.data;
+
+      let fields = [
+        'title',
+        'amountMinor',
+        'categoryId',
+        'paymentMethod',
+        'note',
+        'expenseDate',
+        'createdAt',
+        'updatedAt'
+      ];
+
+      return data.keys().hasAll(fields)
+          && data.keys().hasOnly(fields)
+
+          && data.title is string
+          && data.title.size() > 0
+          && data.title.size() <= 120
+
+          && data.amountMinor is int
+          && data.amountMinor > 0
+
+          && data.categoryId is string
+          && data.categoryId.size() > 0
+          && data.categoryId.size() <= 100
+
+          && data.paymentMethod in ['cash', 'card', 'bank']
+
+          && data.note is string
+          && data.note.size() <= 2000
+
+          && data.expenseDate is timestamp
+          && data.createdAt is timestamp
+          && data.updatedAt is timestamp;
+    }
+
+    match /users/{userId}/expenses/{expenseId} {
+
+      allow read, delete: if isOwner(userId);
+
+      allow create: if isOwner(userId)
+          && validExpense()
+          && request.resource.data.createdAt == request.time
+          && request.resource.data.updatedAt == request.time;
+
+      allow update: if isOwner(userId)
+          && validExpense()
+          && request.resource.data.createdAt
+              == resource.data.createdAt
+          && request.resource.data.updatedAt == request.time;
+    }
+  }
+}
