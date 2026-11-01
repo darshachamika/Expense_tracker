@@ -4,15 +4,20 @@ import 'package:flutter/material.dart';
 import '../models/expense.dart';
 import '../services/expense_service.dart';
 
-
 class AddExpenseScreen extends StatefulWidget {
   final String userId;
+  final Expense? expense;
 
-  const AddExpenseScreen({super.key, required this.userId});
+  const AddExpenseScreen({
+    super.key,
+    required this.userId,
+    this.expense,
+  });
 
   @override
   State<AddExpenseScreen> createState() => _AddExpenseScreenState();
 }
+
 
 class _AddExpenseScreenState extends State<AddExpenseScreen> {
   final _formKey = GlobalKey<FormState>();
