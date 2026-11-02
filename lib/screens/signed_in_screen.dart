@@ -5,6 +5,7 @@ import '../models/expense.dart';
 import '../services/auth_service.dart';
 import '../services/expense_service.dart';
 import 'add_expense_screen.dart';
+import 'category_manager_screen.dart';
 
 class SignedInScreen extends StatefulWidget {
   final User user;
@@ -92,6 +93,19 @@ class _SignedInScreenState extends State<SignedInScreen> {
       appBar: AppBar(
         title: const Text('Expense Tracker'),
         actions: [
+          IconButton(
+            tooltip: 'Manage categories',
+            icon: const Icon(Icons.category_outlined),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) =>
+                      CategoryManagerScreen(userId: widget.user.uid),
+                ),
+              );
+            },
+          ),
           IconButton(
             onPressed: _signingOut ? null : _signOut,
             tooltip: 'Sign out',
