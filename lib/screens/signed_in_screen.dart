@@ -12,6 +12,7 @@ import 'add_expense_screen.dart';
 import 'category_manager_screen.dart';
 import 'monthly_budget_screen.dart';
 import 'dashboard_screen.dart';
+import 'savings_goals_screen.dart';
 
 class SignedInScreen extends StatefulWidget {
   final User user;
@@ -419,6 +420,19 @@ class _SignedInScreenState extends State<SignedInScreen> {
                   return ListView(
                     padding: const EdgeInsets.fromLTRB(20, 20, 20, 100),
                     children: [
+                      OutlinedButton.icon(
+                        onPressed: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) =>
+                                  SavingsGoalsScreen(userId: widget.user.uid),
+                            ),
+                          );
+                        },
+                        icon: const Icon(Icons.flag_outlined),
+                        label: const Text('Savings goals'),
+                      ),
+                      const SizedBox(height: 16),
                       Text(
                         'Hello, ${widget.user.displayName ?? 'there'}',
                         style: theme.textTheme.titleLarge,
