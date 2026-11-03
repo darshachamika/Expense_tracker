@@ -1,23 +1,22 @@
+import 'dart:async';
+
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../models/expense.dart';
+import '../models/expense_category.dart';
+import '../services/category_service.dart';
 import '../services/expense_service.dart';
 
 class AddExpenseScreen extends StatefulWidget {
   final String userId;
   final Expense? expense;
 
-  const AddExpenseScreen({
-    super.key,
-    required this.userId,
-    this.expense,
-  });
+  const AddExpenseScreen({super.key, required this.userId, this.expense});
 
   @override
   State<AddExpenseScreen> createState() => _AddExpenseScreenState();
 }
-
 
 class _AddExpenseScreenState extends State<AddExpenseScreen> {
   final _formKey = GlobalKey<FormState>();
@@ -25,26 +24,118 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
   final _amountController = TextEditingController();
   final _noteController = TextEditingController();
 
-  // Starter choices. User-managed categories come in a later branch.
-  static const _categories = {
-    'food': 'Food & Drinks',
-    'transport': 'Transport',
-    'home': 'Home & Utilities',
-    'shopping': 'Shopping',
-    'health': 'Health & Wellness',
-    'entertainment': 'Entertainment',
-    'education': 'Education',
-    'other': 'Other',
-  };
+  String? _categoryId;
+  List<ExpenseCategory> _categories = [];
 
-  String _categoryId = 'food';
+  StreamSubscription<List<ExpenseCategory>>? _categorySubscription;
+
+  bool _categoriesLoading = true;
+  String? _categoryError;
+
   String _paymentMethod = 'cash';
   DateTime _expenseDate = DateUtils.dateOnly(DateTime.now());
 
   bool _saving = false;
   String? _error;
 
-  // Convert rupees into integer cents without floating-point arithmetic.
+  bool get _isEditing => widget.expense != null;
+
+  List<ExpenseCategory> get _selectableCategories {
+    final originalCategoryId = widget.expense?.categoryId;
+
+    return _categories.where((category) {
+      // Preserve an existing expense's archived category while editing.
+      return !category.archived || category.id == originalCategoryId;
+    }).toList();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+
+    final expense = widget.expense;
+
+    if (expense != null) {
+      _titleController.text = expense.title;
+
+      final rupees = expense.amountMinor ~/ 100;
+      final cents = (expense.amountMinor % 100).toString().padLeft(2, '0');
+
+      _amountController.text = '$rupees.$cents';
+      _noteController.text = expense.note;
+      _categoryId = expense.categoryId;
+      _paymentMethod = expense.paymentMethod;
+      _expenseDate = DateUtils.dateOnly(expense.expenseDate);
+    }
+
+    _loadCategories();
+  }
+
+  Future<void> _loadCategories() async {
+    setState(() {
+      _categoriesLoading = true;
+      _categoryError = null;
+    });
+
+    try {
+      await _categorySubscription?.cancel();
+      _categorySubscription = null;
+
+      if (!mounted) return;
+
+      final service = CategoryService(userId: widget.userId);
+
+      // Add missing starter categories without resetting existing ones.
+      await service.ensureDefaultCategories();
+
+      if (!mounted) return;
+
+      _categorySubscription = service.watchCategories().listen(
+        (categories) {
+          if (!mounted) return;
+
+          setState(() {
+            _categories = categories;
+            _categoriesLoading = false;
+            _categoryError = null;
+
+            final available = _selectableCategories;
+            final selectionExists = available.any(
+              (category) => category.id == _categoryId,
+            );
+
+            if (!selectionExists) {
+              // Require an explicit choice if an old selection is unavailable.
+              // A new form without a selection can use the first active item.
+              if (_categoryId == null && !_isEditing) {
+                _categoryId = available.isEmpty ? null : available.first.id;
+              } else {
+                _categoryId = null;
+              }
+            }
+          });
+        },
+        onError: (Object error, StackTrace stackTrace) {
+          _handleCategoryError(error);
+        },
+      );
+    } catch (error) {
+      _handleCategoryError(error);
+    }
+  }
+
+  void _handleCategoryError(Object error) {
+    debugPrint('Category loading failed: $error');
+
+    if (!mounted) return;
+
+    setState(() {
+      _categoriesLoading = false;
+      _categoryError = 'Could not load categories. Please retry.';
+    });
+  }
+
+  // Convert rupees to integer cents without floating-point arithmetic.
   int? _parseAmountMinor(String input) {
     final value = input.trim();
 
@@ -74,13 +165,34 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
       lastDate: DateUtils.dateOnly(DateTime.now()),
     );
 
-    if (selected != null && mounted) {
-      setState(() => _expenseDate = selected);
-    }
+    if (!mounted || selected == null) return;
+
+    setState(() => _expenseDate = selected);
   }
 
   Future<void> _saveExpense() async {
-    if (_saving || !_formKey.currentState!.validate()) return;
+    if (_saving) return;
+
+    if (_categoriesLoading || _categoryError != null) {
+      setState(() {
+        _error = 'Load categories successfully before saving.';
+      });
+      return;
+    }
+
+    if (!_formKey.currentState!.validate()) return;
+
+    final selectedCategoryId = _categoryId;
+
+    if (selectedCategoryId == null ||
+        !_selectableCategories.any(
+          (category) => category.id == selectedCategoryId,
+        )) {
+      setState(() {
+        _error = 'Please select an available category.';
+      });
+      return;
+    }
 
     setState(() {
       _saving = true;
@@ -94,18 +206,26 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
         throw StateError('Your session changed. Please sign in again.');
       }
 
+      final existing = widget.expense;
+
       final expense = Expense(
-        id: '',
+        id: existing?.id ?? '',
         title: _titleController.text.trim(),
         amountMinor: _parseAmountMinor(_amountController.text)!,
-        categoryId: _categoryId,
+        categoryId: selectedCategoryId,
         paymentMethod: _paymentMethod,
         note: _noteController.text.trim(),
         expenseDate: _expenseDate,
+        createdAt: existing?.createdAt,
       );
 
       final service = ExpenseService(userId: currentUser.uid);
-      await service.createExpense(expense);
+
+      if (_isEditing) {
+        await service.updateExpense(expense);
+      } else {
+        await service.createExpense(expense);
+      }
 
       if (!mounted) return;
 
@@ -121,7 +241,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
 
       setState(() {
         _saving = false;
-        _error = 'Save failed (${error.code}).';
+        _error = 'Save failed (${error.code}). Please retry.';
       });
     } catch (error, stackTrace) {
       debugPrint('Expense save failed: $error');
@@ -131,25 +251,31 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
 
       setState(() {
         _saving = false;
-        _error = 'Could not save the expense. See terminal details.';
+        _error = 'Could not save the expense. Please try again.';
       });
     }
   }
 
   @override
   void dispose() {
+    _categorySubscription?.cancel();
     _titleController.dispose();
     _amountController.dispose();
     _noteController.dispose();
+
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final selectableCategories = _selectableCategories;
+
     return PopScope(
       canPop: !_saving,
       child: Scaffold(
-        appBar: AppBar(title: const Text('Add Expense')),
+        appBar: AppBar(
+          title: Text(_isEditing ? 'Edit Expense' : 'Add Expense'),
+        ),
         body: SafeArea(
           child: Form(
             key: _formKey,
@@ -169,6 +295,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                     if (value == null || value.trim().isEmpty) {
                       return 'Enter an expense title.';
                     }
+
                     return null;
                   },
                 ),
@@ -191,30 +318,76 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                     if (amount == null || amount <= 0) {
                       return 'Enter a positive amount with up to 2 decimals.';
                     }
+
                     return null;
                   },
                 ),
                 const SizedBox(height: 20),
-                DropdownButtonFormField<String>(
-                  initialValue: _categoryId,
-                  decoration: const InputDecoration(
-                    labelText: 'Category',
-                    border: OutlineInputBorder(),
-                  ),
-                  items: _categories.entries.map((entry) {
-                    return DropdownMenuItem(
-                      value: entry.key,
-                      child: Text(entry.value),
-                    );
-                  }).toList(),
-                  onChanged: _saving
-                      ? null
-                      : (value) {
-                          if (value != null) {
+                if (_categoriesLoading)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 16),
+                    child: LinearProgressIndicator(),
+                  )
+                else if (_categoryError != null)
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _categoryError!,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                      ),
+                      TextButton.icon(
+                        onPressed: _saving ? null : _loadCategories,
+                        icon: const Icon(Icons.refresh),
+                        label: const Text('Retry'),
+                      ),
+                    ],
+                  )
+                else ...[
+                  DropdownButtonFormField<String>(
+                    key: ValueKey(_categoryId),
+                    initialValue: _categoryId,
+                    isExpanded: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Category',
+                      border: OutlineInputBorder(),
+                    ),
+                    hint: const Text('Select a category'),
+                    items: selectableCategories.map((category) {
+                      return DropdownMenuItem<String>(
+                        value: category.id,
+                        child: Text(
+                          category.archived
+                              ? '${category.name} (Archived)'
+                              : category.name,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      );
+                    }).toList(),
+                    onChanged: _saving
+                        ? null
+                        : (value) {
                             setState(() => _categoryId = value);
-                          }
-                        },
-                ),
+                          },
+                    validator: (value) {
+                      if (value == null) {
+                        return 'Select a category. Create or restore one if needed.';
+                      }
+
+                      return null;
+                    },
+                  ),
+                  if (selectableCategories.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.only(top: 8),
+                      child: Text(
+                        'No categories available. Go back to Manage Categories '
+                        'and create or restore a category.',
+                      ),
+                    ),
+                ],
                 const SizedBox(height: 20),
                 DropdownButtonFormField<String>(
                   initialValue: _paymentMethod,
@@ -230,9 +403,9 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                   onChanged: _saving
                       ? null
                       : (value) {
-                          if (value != null) {
-                            setState(() => _paymentMethod = value);
-                          }
+                          if (value == null) return;
+
+                          setState(() => _paymentMethod = value);
                         },
                 ),
                 const SizedBox(height: 16),
@@ -267,10 +440,22 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                 ],
                 const SizedBox(height: 20),
                 FilledButton(
-                  onPressed: _saving ? null : _saveExpense,
+                  onPressed:
+                      _saving ||
+                          _categoriesLoading ||
+                          _categoryError != null ||
+                          selectableCategories.isEmpty
+                      ? null
+                      : _saveExpense,
                   child: Padding(
                     padding: const EdgeInsets.all(14),
-                    child: Text(_saving ? 'Saving...' : 'Save Expense'),
+                    child: Text(
+                      _saving
+                          ? 'Saving...'
+                          : _isEditing
+                          ? 'Save Changes'
+                          : 'Save Expense',
+                    ),
                   ),
                 ),
               ],
