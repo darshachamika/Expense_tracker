@@ -26,6 +26,7 @@ class _SignedInScreenState extends State<SignedInScreen> {
 
   String _searchQuery = '';
   String? _filterCategoryId;
+  DateTimeRange? _filterDateRange;
 
   late final ExpenseService _expenseService;
   late final Stream<List<Expense>> _expensesStream;
@@ -72,8 +73,44 @@ class _SignedInScreenState extends State<SignedInScreen> {
         );
   }
 
+  void _filterToday() {
+    final today = DateUtils.dateOnly(DateTime.now());
+
+    setState(() {
+      _filterDateRange = DateTimeRange(start: today, end: today);
+    });
+  }
+
+  void _filterThisMonth() {
+    final now = DateTime.now();
+
+    setState(() {
+      _filterDateRange = DateTimeRange(
+        start: DateTime(now.year, now.month, 1),
+        end: DateTime(now.year, now.month + 1, 0),
+      );
+    });
+  }
+
+  Future<void> _pickDateRange() async {
+    final now = DateTime.now();
+
+    final selected = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(2000),
+      lastDate: DateTime(now.year, now.month + 1, 0),
+      initialDateRange: _filterDateRange,
+      helpText: 'Select expense dates',
+    );
+
+    if (!mounted || selected == null) return;
+
+    setState(() => _filterDateRange = selected);
+  }
+
   List<Expense> _filterExpenses(List<Expense> expenses) {
     final query = _searchQuery.trim().toLowerCase();
+    final range = _filterDateRange;
 
     return expenses.where((expense) {
       final matchesCategory =
@@ -84,7 +121,17 @@ class _SignedInScreenState extends State<SignedInScreen> {
           expense.title.toLowerCase().contains(query) ||
           expense.note.toLowerCase().contains(query);
 
-      return matchesCategory && matchesSearch;
+      bool matchesDate = true;
+
+      if (range != null) {
+        final date = DateUtils.dateOnly(expense.expenseDate.toLocal());
+        final start = DateUtils.dateOnly(range.start);
+        final end = DateUtils.dateOnly(range.end);
+
+        matchesDate = !date.isBefore(start) && !date.isAfter(end);
+      }
+
+      return matchesCategory && matchesSearch && matchesDate;
     }).toList();
   }
 
@@ -94,6 +141,7 @@ class _SignedInScreenState extends State<SignedInScreen> {
     setState(() {
       _searchQuery = '';
       _filterCategoryId = null;
+      _filterDateRange = null;
     });
   }
 
@@ -231,7 +279,9 @@ class _SignedInScreenState extends State<SignedInScreen> {
                 final expenses = _filterExpenses(allExpenses);
 
                 final hasFilters =
-                    _searchQuery.trim().isNotEmpty || _filterCategoryId != null;
+                    _searchQuery.trim().isNotEmpty ||
+                    _filterCategoryId != null ||
+                    _filterDateRange != null;
 
                 final totalMinor = expenses.fold<int>(
                   0,
@@ -309,6 +359,41 @@ class _SignedInScreenState extends State<SignedInScreen> {
                         setState(() => _filterCategoryId = value);
                       },
                     ),
+                    const SizedBox(height: 16),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        OutlinedButton(
+                          onPressed: _filterToday,
+                          child: const Text('Today'),
+                        ),
+                        OutlinedButton(
+                          onPressed: _filterThisMonth,
+                          child: const Text('This month'),
+                        ),
+                        OutlinedButton.icon(
+                          onPressed: _pickDateRange,
+                          icon: const Icon(Icons.date_range_outlined),
+                          label: const Text('Choose dates'),
+                        ),
+                        if (_filterDateRange != null)
+                          TextButton(
+                            onPressed: () {
+                              setState(() => _filterDateRange = null);
+                            },
+                            child: const Text('All dates'),
+                          ),
+                      ],
+                    ),
+                    if (_filterDateRange != null) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        '${_formatDate(_filterDateRange!.start)}'
+                        ' → '
+                        '${_formatDate(_filterDateRange!.end)}',
+                      ),
+                    ],
                     if (hasFilters)
                       Align(
                         alignment: Alignment.centerRight,
