@@ -6,6 +6,10 @@ import '../models/monthly_expense_summary.dart';
 import '../services/budget_service.dart';
 import '../services/expense_service.dart';
 import '../widgets/spending_charts.dart';
+import '../models/spending_period_summary.dart';
+import '../widgets/period_spending_overview.dart';
+
+enum DashboardPeriod { month, year, allTime }
 
 class DashboardScreen extends StatefulWidget {
   final String userId;
@@ -17,6 +21,8 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
+  DashboardPeriod _period = DashboardPeriod.month;
+  late int _year;
   late DateTime _month;
   late final BudgetService _budgetService;
   late final Stream<List<Expense>> _expensesStream;
@@ -28,6 +34,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     final now = DateTime.now();
     _month = DateTime(now.year, now.month);
+    _year = now.year;
 
     _budgetService = BudgetService(userId: widget.userId);
     _budgetStream = _budgetService.watchBudget(_month);
@@ -72,6 +79,81 @@ class _DashboardScreenState extends State<DashboardScreen> {
       _month = selected;
       _budgetStream = _budgetService.watchBudget(selected);
     });
+  }
+
+  void _openMonth(DateTime month) {
+    if (month.year < 2000 || month.year > 9999) return;
+
+    _selectMonth(month);
+    setState(() {
+      _period = DashboardPeriod.month;
+      _year = month.year;
+    });
+  }
+
+  Widget _buildPeriodDashboard(List<Expense> expenses) {
+    final now = DateTime.now();
+    final isYear = _period == DashboardPeriod.year;
+    final summary = isYear
+        ? SpendingPeriodSummary.forYear(
+            expenses: expenses,
+            year: _year,
+            now: now,
+          )
+        : SpendingPeriodSummary.allTime(expenses: expenses, now: now);
+
+    return ListView(
+      key: ValueKey(_period),
+      padding: const EdgeInsets.all(20),
+      children: [
+        if (isYear) ...[
+          Row(
+            children: [
+              IconButton(
+                tooltip: 'Previous year',
+                onPressed: _year <= 2000 ? null : () => setState(() => _year--),
+                icon: const Icon(Icons.chevron_left),
+              ),
+              Expanded(
+                child: Text(
+                  _year == now.year ? '$_year • Year to date' : '$_year',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+              ),
+              IconButton(
+                tooltip: 'Next year',
+                onPressed: _year >= now.year
+                    ? null
+                    : () => setState(() => _year++),
+                icon: const Icon(Icons.chevron_right),
+              ),
+            ],
+          ),
+          Center(
+            child: TextButton(
+              onPressed: () => setState(() => _year = now.year),
+              child: const Text('Current year'),
+            ),
+          ),
+        ] else ...[
+          Text(
+            'All-time spending',
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Recorded expenses from your first expense through today.',
+          ),
+        ],
+        const SizedBox(height: 20),
+        PeriodSpendingOverview(
+          userId: widget.userId,
+          summary: summary,
+          onMonthSelected: _openMonth,
+        ),
+      ],
+    );
   }
 
   Widget _statCard({
@@ -338,25 +420,61 @@ class _DashboardScreenState extends State<DashboardScreen> {
         child: Center(
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 1000),
-            child: StreamBuilder<List<Expense>>(
-              stream: _expensesStream,
-              builder: (context, snapshot) {
-                if (snapshot.hasError) {
-                  return const Padding(
-                    padding: EdgeInsets.all(24),
-                    child: Text(
-                      'Could not load your expenses. '
-                      'Check your connection and reopen this screen.',
-                    ),
-                  );
-                }
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+                  child: SegmentedButton<DashboardPeriod>(
+                    segments: const [
+                      ButtonSegment(
+                        value: DashboardPeriod.month,
+                        label: Text('Month'),
+                      ),
+                      ButtonSegment(
+                        value: DashboardPeriod.year,
+                        label: Text('Year'),
+                      ),
+                      ButtonSegment(
+                        value: DashboardPeriod.allTime,
+                        label: Text('All time'),
+                      ),
+                    ],
+                    selected: {_period},
+                    showSelectedIcon: false,
+                    onSelectionChanged: (selection) {
+                      setState(() => _period = selection.single);
+                    },
+                  ),
+                ),
+                Expanded(
+                  child: StreamBuilder<List<Expense>>(
+                    stream: _expensesStream,
+                    builder: (context, snapshot) {
+                      if (snapshot.hasError) {
+                        return const Center(
+                          child: Padding(
+                            padding: EdgeInsets.all(24),
+                            child: Text(
+                              'Could not load your expenses. '
+                              'Check your connection and reopen this screen.',
+                            ),
+                          ),
+                        );
+                      }
 
-                if (!snapshot.hasData) {
-                  return const CircularProgressIndicator();
-                }
+                      if (!snapshot.hasData) {
+                        return const Center(child: CircularProgressIndicator());
+                      }
 
-                return _buildDashboard(snapshot.data!);
-              },
+                      final expenses = snapshot.data!;
+                      return _period == DashboardPeriod.month
+                          ? _buildDashboard(expenses)
+                          : _buildPeriodDashboard(expenses);
+                    },
+                  ),
+                ),
+              ],
             ),
           ),
         ),
