@@ -39,6 +39,14 @@ class SavingsService {
         );
   }
 
+  Stream<SavingsGoal?> watchGoal(String goalId) {
+    return _goal(goalId).snapshots().map((document) {
+      if (!document.exists) return null;
+
+      return SavingsGoal.fromFirestore(document);
+    });
+  }
+
   Stream<List<SavingsContribution>> watchContributions(String goalId) {
     return _contributions(goalId)
         .orderBy('contributionDate', descending: true)

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/savings_goal.dart';
 import '../services/savings_service.dart';
 import 'edit_savings_goal_screen.dart';
+import 'savings_goal_details_screen.dart';
 
 class SavingsGoalsScreen extends StatefulWidget {
   final String userId;
@@ -160,6 +161,19 @@ class _SavingsGoalsScreenState extends State<SavingsGoalsScreen> {
 
                             return Card(
                               child: ListTile(
+                                onTap: _busy
+                                    ? null
+                                    : () {
+                                        Navigator.of(context).push(
+                                          MaterialPageRoute<void>(
+                                            builder: (_) =>
+                                                SavingsGoalDetailsScreen(
+                                                  userId: widget.userId,
+                                                  goalId: goal.id,
+                                                ),
+                                          ),
+                                        );
+                                      },
                                 contentPadding: const EdgeInsets.all(16),
                                 leading: const Icon(Icons.flag_outlined),
                                 title: Text(goal.title),
