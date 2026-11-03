@@ -15,9 +15,9 @@ class MonthlyBudgetScreen extends StatefulWidget {
 }
 
 class _MonthlyBudgetScreenState extends State<MonthlyBudgetScreen> {
-  late final DateTime _month;
+  late DateTime _month;
   late final BudgetService _budgetService;
-  late final Stream<MonthlyBudget?> _budgetStream;
+  late Stream<MonthlyBudget?> _budgetStream;
   late final Stream<List<Expense>> _expensesStream;
 
   bool _saving = false;
@@ -62,8 +62,30 @@ class _MonthlyBudgetScreenState extends State<MonthlyBudgetScreen> {
     return '${names[_month.month - 1]} ${_month.year}';
   }
 
+  void _selectMonth(DateTime month) {
+    if (_saving || month.year < 2000 || month.year > 9999) return;
+
+    final selected = DateTime(month.year, month.month);
+    if (selected == _month) return;
+
+    setState(() {
+      _month = selected;
+      _budgetStream = _budgetService.watchBudget(selected);
+    });
+  }
+
+  void _changeMonth(int offset) {
+    _selectMonth(DateTime(_month.year, _month.month + offset));
+  }
+
+  void _goToCurrentMonth() {
+    _selectMonth(DateTime.now());
+  }
+
   Future<void> _editBudget(MonthlyBudget? currentBudget) async {
     if (_saving) return;
+
+    final selectedMonth = _month;
 
     final amountMinor = await showDialog<int>(
       context: context,
@@ -78,7 +100,7 @@ class _MonthlyBudgetScreenState extends State<MonthlyBudgetScreen> {
 
     try {
       await _budgetService.saveBudget(
-        month: _month,
+        month: selectedMonth,
         overallLimitMinor: amountMinor,
         // Preserve category limits when changing the overall budget.
         categoryLimitsMinor: currentBudget?.categoryLimitsMinor ?? const {},
@@ -170,9 +192,41 @@ class _MonthlyBudgetScreenState extends State<MonthlyBudgetScreen> {
     return ListView(
       padding: const EdgeInsets.all(24),
       children: [
-        Text(_monthLabel, style: Theme.of(context).textTheme.headlineSmall),
+        Row(
+          children: [
+            IconButton(
+              tooltip: 'Previous month',
+              onPressed: _saving || (_month.year == 2000 && _month.month == 1)
+                  ? null
+                  : () => _changeMonth(-1),
+              icon: const Icon(Icons.chevron_left),
+            ),
+            Expanded(
+              child: Text(
+                _monthLabel,
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+            ),
+            IconButton(
+              tooltip: 'Next month',
+              onPressed: _saving || (_month.year == 9999 && _month.month == 12)
+                  ? null
+                  : () => _changeMonth(1),
+              icon: const Icon(Icons.chevron_right),
+            ),
+          ],
+        ),
+        Align(
+          alignment: Alignment.center,
+          child: TextButton.icon(
+            onPressed: _saving ? null : _goToCurrentMonth,
+            icon: const Icon(Icons.today_outlined),
+            label: const Text('Current month'),
+          ),
+        ),
         const SizedBox(height: 8),
-        const Text('Track this month’s spending against your budget.'),
+        const Text('Track spending against the selected month’s budget.'),
         const SizedBox(height: 24),
         Card(
           child: Padding(
@@ -254,6 +308,7 @@ class _MonthlyBudgetScreenState extends State<MonthlyBudgetScreen> {
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 800),
               child: StreamBuilder<MonthlyBudget?>(
+                key: ValueKey(MonthlyBudget.monthKey(_month)),
                 stream: _budgetStream,
                 builder: (context, budgetSnapshot) {
                   if (budgetSnapshot.hasError) {
