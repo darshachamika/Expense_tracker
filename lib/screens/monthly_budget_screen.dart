@@ -4,6 +4,8 @@ import '../models/expense.dart';
 import '../models/monthly_budget.dart';
 import '../services/budget_service.dart';
 import '../services/expense_service.dart';
+import '../models/expense_category.dart';
+import '../services/category_service.dart';
 
 class MonthlyBudgetScreen extends StatefulWidget {
   final String userId;
@@ -19,6 +21,7 @@ class _MonthlyBudgetScreenState extends State<MonthlyBudgetScreen> {
   late final BudgetService _budgetService;
   late Stream<MonthlyBudget?> _budgetStream;
   late final Stream<List<Expense>> _expensesStream;
+  late final Stream<List<ExpenseCategory>> _categoriesStream;
 
   bool _saving = false;
 
@@ -32,6 +35,8 @@ class _MonthlyBudgetScreenState extends State<MonthlyBudgetScreen> {
     _budgetService = BudgetService(userId: widget.userId);
     _budgetStream = _budgetService.watchBudget(_month);
     _expensesStream = ExpenseService(userId: widget.userId).watchExpenses();
+    _categoriesStream = CategoryService(userId: widget.userId)
+        .watchCategories();
   }
 
   String _money(int amountMinor) {
@@ -126,6 +131,256 @@ class _MonthlyBudgetScreenState extends State<MonthlyBudgetScreen> {
         setState(() => _saving = false);
       }
     }
+  }
+
+  Future<void> _changeCategoryLimit({
+    required MonthlyBudget budget,
+    required String categoryId,
+    required String categoryName,
+    bool remove = false,
+  }) async {
+    if (_saving) return;
+
+    final selectedMonth = _month;
+    int? amountMinor;
+
+    if (!remove) {
+      amountMinor = await showDialog<int>(
+        context: context,
+        builder: (_) => _BudgetAmountDialog(
+          title: '$categoryName budget',
+          initialAmountMinor: budget.categoryLimitsMinor[categoryId],
+        ),
+      );
+      if (amountMinor == null || !mounted) return;
+    }
+
+    if (!mounted) return;
+
+    final limits = Map<String, int>.from(budget.categoryLimitsMinor);
+    if (remove) {
+      limits.remove(categoryId);
+    } else {
+      limits[categoryId] = amountMinor!;
+    }
+
+    setState(() => _saving = true);
+    try {
+      await _budgetService.saveBudget(
+        month: selectedMonth,
+        overallLimitMinor: budget.overallLimitMinor,
+        categoryLimitsMinor: limits,
+      );
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            remove ? 'Category limit removed.' : 'Category budget saved.',
+          ),
+        ),
+      );
+    } catch (error, stackTrace) {
+      debugPrint('Category budget save failed: $error');
+      debugPrintStack(stackTrace: stackTrace);
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Could not update the category budget. Please try again.',
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Widget _buildCategoryBudgets(
+    MonthlyBudget budget,
+    List<Expense> monthExpenses,
+  ) {
+    return StreamBuilder<List<ExpenseCategory>>(
+      stream: _categoriesStream,
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return const Padding(
+            padding: EdgeInsets.symmetric(vertical: 16),
+            child: Text(
+              'Could not load categories. Reopen this screen to retry.',
+            ),
+          );
+        }
+        if (!snapshot.hasData) {
+          return const Padding(
+            padding: EdgeInsets.all(16),
+            child: Center(child: CircularProgressIndicator()),
+          );
+        }
+
+        final categoriesById = {
+          for (final category in snapshot.data!) category.id: category,
+        };
+
+        // Keep existing limits visible for archived or unavailable categories.
+        final categoryIds = <String>{
+          for (final category in snapshot.data!)
+            if (!category.archived) category.id,
+          ...budget.categoryLimitsMinor.keys,
+        }.toList();
+
+        String categoryLabel(String id) {
+          final category = categoriesById[id];
+          if (category == null) return 'Unavailable category ($id)';
+          return category.archived
+              ? '${category.name} (Archived)'
+              : category.name;
+        }
+
+        categoryIds.sort(
+          (a, b) =>
+              categoryLabel(a)
+                  .toLowerCase()
+                  .compareTo(categoryLabel(b).toLowerCase()),
+        );
+
+        final spentByCategory = <String, int>{};
+        for (final expense in monthExpenses) {
+          spentByCategory.update(
+            expense.categoryId,
+            (amount) => amount + expense.amountMinor,
+            ifAbsent: () => expense.amountMinor,
+          );
+        }
+
+        if (categoryIds.isEmpty) {
+          return const Text(
+            'Create a category from the home screen to set category budgets.',
+          );
+        }
+
+        final colors = Theme.of(context).colorScheme;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            for (final categoryId in categoryIds)
+              Builder(
+                builder: (context) {
+                  final name = categoryLabel(categoryId);
+                  final category = categoriesById[categoryId];
+                  final limit = budget.categoryLimitsMinor[categoryId];
+                  final spent = spentByCategory[categoryId] ?? 0;
+                  final hasLimit = limit != null && limit > 0;
+                  final remaining = hasLimit ? limit - spent : 0;
+                  final progress = hasLimit ? spent / limit : 0.0;
+                  final color = hasLimit && spent >= limit
+                      ? colors.error
+                      : hasLimit && spent * 100 >= limit * 80
+                      ? Colors.orange
+                      : colors.primary;
+
+                  String? warning;
+                  if (hasLimit) {
+                    if (spent > limit) {
+                      warning = 'Over budget by ${_money(spent - limit)}.';
+                    } else if (spent == limit) {
+                      warning = 'Category budget fully used.';
+                    } else if (spent * 100 >= limit * 80) {
+                      warning = 'At least 80% of this category budget is used.';
+                    }
+                  }
+
+                  final canSetLimit =
+                      hasLimit || (category != null && !category.archived);
+
+                  return Card(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Text(
+                            name,
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                          const SizedBox(height: 8),
+                          _summaryRow('Spent', _money(spent)),
+                          _summaryRow(
+                            'Limit',
+                            hasLimit ? _money(limit) : 'Not set',
+                          ),
+                          if (hasLimit) ...[
+                            _summaryRow(
+                              remaining < 0 ? 'Over budget' : 'Remaining',
+                              _money(remaining.abs()),
+                            ),
+                            const SizedBox(height: 8),
+                            LinearProgressIndicator(
+                              value: progress.clamp(0.0, 1.0).toDouble(),
+                              minHeight: 8,
+                              color: color,
+                              backgroundColor: colors.surfaceContainerHighest,
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              '${(progress * 100).toStringAsFixed(1)}% used',
+                            ),
+                          ],
+                          if (warning != null) ...[
+                            const SizedBox(height: 8),
+                            Text(
+                              warning,
+                              style: TextStyle(
+                                color: color,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                          const SizedBox(height: 8),
+                          Wrap(
+                            spacing: 8,
+                            children: [
+                              TextButton.icon(
+                                onPressed: _saving || !canSetLimit
+                                    ? null
+                                    : () => _changeCategoryLimit(
+                                        budget: budget,
+                                        categoryId: categoryId,
+                                        categoryName: name,
+                                      ),
+                                icon: Icon(
+                                  hasLimit ? Icons.edit_outlined : Icons.add,
+                                ),
+                                label: Text(
+                                  hasLimit ? 'Edit limit' : 'Set limit',
+                                ),
+                              ),
+                              if (hasLimit)
+                                TextButton(
+                                  onPressed: _saving
+                                      ? null
+                                      : () => _changeCategoryLimit(
+                                          budget: budget,
+                                          categoryId: categoryId,
+                                          categoryName: name,
+                                          remove: true,
+                                        ),
+                                  child: const Text('Remove limit'),
+                                ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+          ],
+        );
+      },
+    );
   }
 
   Widget _summaryRow(String label, String value) {
@@ -293,6 +548,20 @@ class _MonthlyBudgetScreenState extends State<MonthlyBudgetScreen> {
             'Set a budget to see your remaining amount and spending warnings.',
           ),
         ],
+        const SizedBox(height: 28),
+        Text('Category budgets', style: Theme.of(context).textTheme.titleLarge),
+        const SizedBox(height: 8),
+        const Text(
+          'Category limits are separate spending targets. '
+          'All expenses also count toward your overall monthly budget.',
+        ),
+        const SizedBox(height: 16),
+        if (budget == null)
+          const Text(
+            'Set your overall monthly budget first, then add category limits.',
+          )
+        else
+          _buildCategoryBudgets(budget, expenses),
       ],
     );
   }
@@ -358,8 +627,12 @@ class _MonthlyBudgetScreenState extends State<MonthlyBudgetScreen> {
 
 class _BudgetAmountDialog extends StatefulWidget {
   final int? initialAmountMinor;
+  final String title;
 
-  const _BudgetAmountDialog({this.initialAmountMinor});
+  const _BudgetAmountDialog({
+    this.initialAmountMinor,
+    this.title = 'Monthly budget',
+  });
 
   @override
   State<_BudgetAmountDialog> createState() => _BudgetAmountDialogState();
@@ -411,7 +684,7 @@ class _BudgetAmountDialogState extends State<_BudgetAmountDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('Monthly budget'),
+      title: Text(widget.title),
       content: Form(
         key: _formKey,
         child: TextFormField(
