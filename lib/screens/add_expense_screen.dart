@@ -11,8 +11,16 @@ import '../services/expense_service.dart';
 class AddExpenseScreen extends StatefulWidget {
   final String userId;
   final Expense? expense;
+  final int? initialAmountMinor;
+  final String? initialCategoryId;
 
-  const AddExpenseScreen({super.key, required this.userId, this.expense});
+  const AddExpenseScreen({
+    super.key,
+    required this.userId,
+    this.expense,
+    this.initialAmountMinor,
+    this.initialCategoryId,
+  });
 
   @override
   State<AddExpenseScreen> createState() => _AddExpenseScreenState();
@@ -68,6 +76,17 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
       _categoryId = expense.categoryId;
       _paymentMethod = expense.paymentMethod;
       _expenseDate = DateUtils.dateOnly(expense.expenseDate);
+    }
+
+    if (expense == null) {
+      final amount = widget.initialAmountMinor;
+
+      if (amount != null) {
+        _amountController.text =
+            '${amount ~/ 100}.${(amount % 100).toString().padLeft(2, '0')}';
+      }
+
+      _categoryId = widget.initialCategoryId;
     }
 
     _loadCategories();

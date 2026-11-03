@@ -14,6 +14,7 @@ import 'monthly_budget_screen.dart';
 import 'dashboard_screen.dart';
 import 'savings_goals_screen.dart';
 import 'planned_bills_screen.dart';
+import 'purchase_simulator_screen.dart';
 
 class SignedInScreen extends StatefulWidget {
   final User user;
@@ -423,6 +424,20 @@ class _SignedInScreenState extends State<SignedInScreen> {
                   return ListView(
                     padding: const EdgeInsets.fromLTRB(20, 20, 20, 100),
                     children: [
+                      OutlinedButton.icon(
+                        onPressed: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) => PurchaseSimulatorScreen(
+                                userId: widget.user.uid,
+                              ),
+                            ),
+                          );
+                        },
+                        icon: const Icon(Icons.shopping_bag_outlined),
+                        label: const Text('Purchase simulator'),
+                      ),
+                      const SizedBox(height: 16),
                       OutlinedButton.icon(
                         onPressed: () {
                           Navigator.of(context).push(
