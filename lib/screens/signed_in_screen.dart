@@ -11,6 +11,7 @@ import '../services/expense_service.dart';
 import 'add_expense_screen.dart';
 import 'category_manager_screen.dart';
 import 'monthly_budget_screen.dart';
+import 'dashboard_screen.dart';
 
 class SignedInScreen extends StatefulWidget {
   final User user;
@@ -319,6 +320,17 @@ class _SignedInScreenState extends State<SignedInScreen> {
         appBar: AppBar(
           title: const Text('Expense Tracker'),
           actions: [
+            IconButton(
+              tooltip: 'Dashboard',
+              icon: const Icon(Icons.dashboard_outlined),
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => DashboardScreen(userId: widget.user.uid),
+                  ),
+                );
+              },
+            ),
             IconButton(
               tooltip: 'Monthly budget',
               icon: const Icon(Icons.savings_outlined),
