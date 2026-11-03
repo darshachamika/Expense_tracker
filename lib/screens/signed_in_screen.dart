@@ -46,6 +46,8 @@ class _SignedInScreenState extends State<SignedInScreen> {
 
   bool get _busy => _signingOut || _deletingExpense;
 
+  bool _isBillPayment(Expense expense) => expense.id.startsWith('bill_');
+
   @override
   void initState() {
     super.initState();
@@ -197,7 +199,7 @@ class _SignedInScreenState extends State<SignedInScreen> {
   }
 
   Future<void> _editExpense(Expense expense) async {
-    if (_busy) return;
+    if (_busy || _isBillPayment(expense)) return;
 
     final saved = await Navigator.push<bool>(
       context,
@@ -215,7 +217,7 @@ class _SignedInScreenState extends State<SignedInScreen> {
   }
 
   Future<void> _deleteExpense(Expense expense) async {
-    if (_busy) return;
+    if (_busy || _isBillPayment(expense)) return;
 
     // Lock actions while confirming and deleting.
     setState(() => _deletingExpense = true);
@@ -594,7 +596,9 @@ class _SignedInScreenState extends State<SignedInScreen> {
                         ...expenses.map(
                           (expense) => Card(
                             child: ListTile(
-                              onTap: _busy ? null : () => _editExpense(expense),
+                              onTap: _busy || _isBillPayment(expense)
+                                  ? null
+                                  : () => _editExpense(expense),
                               leading: const CircleAvatar(
                                 child: Icon(Icons.receipt_long_outlined),
                               ),
@@ -605,7 +609,8 @@ class _SignedInScreenState extends State<SignedInScreen> {
                               ),
                               subtitle: Text(
                                 '${_categoryLabel(expense.categoryId)} · '
-                                '${_formatDate(expense.expenseDate.toLocal())}',
+                                '${_formatDate(expense.expenseDate.toLocal())}'
+                                '${_isBillPayment(expense) ? '\nBill payment • Read-only' : ''}',
                               ),
                               trailing: Row(
                                 mainAxisSize: MainAxisSize.min,
@@ -614,39 +619,50 @@ class _SignedInScreenState extends State<SignedInScreen> {
                                     _formatMoney(expense.amountMinor),
                                     style: theme.textTheme.titleSmall,
                                   ),
-                                  PopupMenuButton<String>(
-                                    tooltip: 'Expense actions',
-                                    enabled: !_busy,
-                                    onSelected: (action) async {
-                                      if (action == 'edit') {
-                                        await _editExpense(expense);
-                                      } else if (action == 'delete') {
-                                        await _deleteExpense(expense);
-                                      }
-                                    },
-                                    itemBuilder: (context) => const [
-                                      PopupMenuItem<String>(
-                                        value: 'edit',
-                                        child: Row(
-                                          children: [
-                                            Icon(Icons.edit_outlined),
-                                            SizedBox(width: 12),
-                                            Text('Edit'),
-                                          ],
-                                        ),
+                                  if (_isBillPayment(expense))
+                                    const Padding(
+                                      padding: EdgeInsets.all(12),
+                                      child: Tooltip(
+                                        message:
+                                            'This expense was created from a bill payment. '
+                                            'It cannot be edited or deleted separately.',
+                                        child: Icon(Icons.lock_outline),
                                       ),
-                                      PopupMenuItem<String>(
-                                        value: 'delete',
-                                        child: Row(
-                                          children: [
-                                            Icon(Icons.delete_outline),
-                                            SizedBox(width: 12),
-                                            Text('Delete'),
-                                          ],
+                                    )
+                                  else
+                                    PopupMenuButton<String>(
+                                      tooltip: 'Expense actions',
+                                      enabled: !_busy,
+                                      onSelected: (action) async {
+                                        if (action == 'edit') {
+                                          await _editExpense(expense);
+                                        } else if (action == 'delete') {
+                                          await _deleteExpense(expense);
+                                        }
+                                      },
+                                      itemBuilder: (context) => const [
+                                        PopupMenuItem<String>(
+                                          value: 'edit',
+                                          child: Row(
+                                            children: [
+                                              Icon(Icons.edit_outlined),
+                                              SizedBox(width: 12),
+                                              Text('Edit'),
+                                            ],
+                                          ),
                                         ),
-                                      ),
-                                    ],
-                                  ),
+                                        PopupMenuItem<String>(
+                                          value: 'delete',
+                                          child: Row(
+                                            children: [
+                                              Icon(Icons.delete_outline),
+                                              SizedBox(width: 12),
+                                              Text('Delete'),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                                 ],
                               ),
                             ),

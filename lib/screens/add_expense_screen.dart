@@ -40,6 +40,8 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
 
   bool get _isEditing => widget.expense != null;
 
+  bool get _isBillPayment => widget.expense?.id.startsWith('bill_') == true;
+
   List<ExpenseCategory> get _selectableCategories {
     final originalCategoryId = widget.expense?.categoryId;
 
@@ -173,6 +175,13 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
   Future<void> _saveExpense() async {
     if (_saving) return;
 
+    if (_isBillPayment) {
+      setState(() {
+        _error = 'Bill payment expenses cannot be edited separately.';
+      });
+      return;
+    }
+
     if (_categoriesLoading || _categoryError != null) {
       setState(() {
         _error = 'Load categories successfully before saving.';
@@ -274,7 +283,13 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
       canPop: !_saving,
       child: Scaffold(
         appBar: AppBar(
-          title: Text(_isEditing ? 'Edit Expense' : 'Add Expense'),
+          title: Text(
+            _isBillPayment
+                ? 'Bill Payment'
+                : _isEditing
+                ? 'Edit Expense'
+                : 'Add Expense',
+          ),
         ),
         body: SafeArea(
           child: Form(
@@ -282,9 +297,30 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
             child: ListView(
               padding: const EdgeInsets.all(24),
               children: [
+                if (_isBillPayment) ...[
+                  const Card(
+                    child: Padding(
+                      padding: EdgeInsets.all(16),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(Icons.lock_outline),
+                          SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              'This expense was created from a bill payment. '
+                              'It cannot be edited or deleted separately.',
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                ],
                 TextFormField(
                   controller: _titleController,
-                  enabled: !_saving,
+                  enabled: !_saving && !_isBillPayment,
                   maxLength: 120,
                   decoration: const InputDecoration(
                     labelText: 'Title',
@@ -302,7 +338,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                 const SizedBox(height: 16),
                 TextFormField(
                   controller: _amountController,
-                  enabled: !_saving,
+                  enabled: !_saving && !_isBillPayment,
                   keyboardType: const TextInputType.numberWithOptions(
                     decimal: true,
                   ),
@@ -366,7 +402,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                         ),
                       );
                     }).toList(),
-                    onChanged: _saving
+                    onChanged: _saving || _isBillPayment
                         ? null
                         : (value) {
                             setState(() => _categoryId = value);
@@ -400,7 +436,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                     DropdownMenuItem(value: 'card', child: Text('Card')),
                     DropdownMenuItem(value: 'bank', child: Text('Bank')),
                   ],
-                  onChanged: _saving
+                  onChanged: _saving || _isBillPayment
                       ? null
                       : (value) {
                           if (value == null) return;
@@ -415,12 +451,12 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                   title: const Text('Expense date'),
                   subtitle: Text(_formatDate(_expenseDate)),
                   trailing: const Icon(Icons.edit_calendar_outlined),
-                  onTap: _saving ? null : _pickDate,
+                  onTap: _saving || _isBillPayment ? null : _pickDate,
                 ),
                 const SizedBox(height: 16),
                 TextFormField(
                   controller: _noteController,
-                  enabled: !_saving,
+                  enabled: !_saving && !_isBillPayment,
                   maxLength: 2000,
                   minLines: 2,
                   maxLines: 4,
@@ -442,6 +478,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                 FilledButton(
                   onPressed:
                       _saving ||
+                          _isBillPayment ||
                           _categoriesLoading ||
                           _categoryError != null ||
                           selectableCategories.isEmpty
