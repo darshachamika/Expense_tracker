@@ -5,6 +5,7 @@ import '../models/monthly_budget.dart';
 import '../models/monthly_expense_summary.dart';
 import '../services/budget_service.dart';
 import '../services/expense_service.dart';
+import '../widgets/spending_charts.dart';
 
 class DashboardScreen extends StatefulWidget {
   final String userId;
@@ -319,6 +320,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ),
         const SizedBox(height: 12),
         _budgetCard(summary),
+        const SizedBox(height: 20),
+        SpendingCharts(userId: widget.userId, summary: summary),
         if (summary.expenseCount == 0) ...[
           const SizedBox(height: 20),
           const Text('No expenses recorded for this month.'),
