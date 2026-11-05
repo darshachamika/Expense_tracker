@@ -15,6 +15,9 @@ import 'dashboard_screen.dart';
 import 'savings_goals_screen.dart';
 import 'planned_bills_screen.dart';
 import 'purchase_simulator_screen.dart';
+import 'gemini_advisor_screen.dart';
+import '../controllers/gemini_advisor_controller.dart';
+import '../widgets/gemini_advisor_panel.dart';
 
 class SignedInScreen extends StatefulWidget {
   final User user;
@@ -28,6 +31,8 @@ class SignedInScreen extends StatefulWidget {
 class _SignedInScreenState extends State<SignedInScreen> {
   final _authService = AuthService();
   final _searchController = TextEditingController();
+  late final GeminiAdvisorController _advisorController;
+  bool _advisorOpen = false;
 
   String _searchQuery = '';
   String? _filterCategoryId;
@@ -52,6 +57,8 @@ class _SignedInScreenState extends State<SignedInScreen> {
   @override
   void initState() {
     super.initState();
+
+    _advisorController = GeminiAdvisorController.forUser(widget.user.uid);
 
     _expenseService = ExpenseService(userId: widget.user.uid);
     _expensesStream = _expenseService.watchExpenses();
@@ -81,6 +88,37 @@ class _SignedInScreenState extends State<SignedInScreen> {
             });
           },
         );
+  }
+
+  Future<void> _openAdvisor() async {
+    if (_busy || _advisorOpen || !_advisorController.sessionValid) return;
+    setState(() => _advisorOpen = true);
+    try {
+      final expand = await showModalBottomSheet<bool>(
+        context: context,
+        isScrollControlled: true,
+        useSafeArea: true,
+        showDragHandle: false,
+        clipBehavior: Clip.antiAlias,
+        constraints: const BoxConstraints(maxWidth: 800),
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        builder: (_) => GeminiAdvisorSheet(controller: _advisorController),
+      );
+      if (!mounted || expand != true || !_advisorController.sessionValid)
+        return;
+      await Navigator.of(context).push<void>(
+        MaterialPageRoute<void>(
+          builder: (_) => GeminiAdvisorScreen(
+            userId: widget.user.uid,
+            controller: _advisorController,
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _advisorOpen = false);
+    }
   }
 
   void _filterToday() {
@@ -309,6 +347,7 @@ class _SignedInScreenState extends State<SignedInScreen> {
 
   @override
   void dispose() {
+    _advisorController.dispose();
     _searchController.dispose();
     _categorySubscription?.cancel();
 
@@ -372,10 +411,24 @@ class _SignedInScreenState extends State<SignedInScreen> {
             ),
           ],
         ),
-        floatingActionButton: FloatingActionButton.extended(
-          onPressed: _busy ? null : _addExpense,
-          icon: const Icon(Icons.add),
-          label: const Text('Add Expense'),
+        floatingActionButton: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            FloatingActionButton.small(
+              heroTag: 'geminiAdvisorFab',
+              tooltip: 'Ask Gemini',
+              onPressed: _busy || _advisorOpen ? null : _openAdvisor,
+              child: const Icon(Icons.auto_awesome),
+            ),
+            const SizedBox(height: 12),
+            FloatingActionButton.extended(
+              heroTag: 'addExpenseFab',
+              onPressed: _busy ? null : _addExpense,
+              icon: const Icon(Icons.add),
+              label: const Text('Add Expense'),
+            ),
+          ],
         ),
         body: SafeArea(
           child: Center(
@@ -422,7 +475,7 @@ class _SignedInScreenState extends State<SignedInScreen> {
                       _categoriesById.containsKey(_filterCategoryId);
 
                   return ListView(
-                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 100),
+                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 164),
                     children: [
                       OutlinedButton.icon(
                         onPressed: () {
