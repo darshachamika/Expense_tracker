@@ -4,6 +4,10 @@ import 'package:flutter/material.dart';
 import 'firebase_options.dart';
 import 'screens/auth_gate.dart';
 
+import 'package:firebase_ai/firebase_ai.dart';
+import 'package:firebase_app_check/firebase_app_check.dart';
+import 'package:flutter/foundation.dart';
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -12,12 +16,80 @@ Future<void> main() async {
       options: DefaultFirebaseOptions.currentPlatform,
     );
 
+    // Configure App Check for the current Edge/web testing step.
+    if (kIsWeb) {
+      const siteKey = String.fromEnvironment('APP_CHECK_RECAPTCHA_SITE_KEY');
+
+      if (!kDebugMode && siteKey.isEmpty) {
+        throw StateError(
+          'APP_CHECK_RECAPTCHA_SITE_KEY is required for web release builds.',
+        );
+      }
+
+      await FirebaseAppCheck.instance.activate(
+        providerWeb: kDebugMode
+            ? WebDebugProvider()
+            : ReCaptchaV3Provider(siteKey),
+      );
+    }
+
     runApp(const ExpenseTrackerApp());
+
+    const runGeminiTest = bool.fromEnvironment(
+      'RUN_GEMINI_TEST',
+      defaultValue: false,
+    );
+
+    if (kIsWeb && kDebugMode && runGeminiTest) {
+      await _testGeminiConnection();
+    }
   } catch (error, stackTrace) {
     debugPrint('Firebase initialization failed: $error');
     debugPrintStack(stackTrace: stackTrace);
 
     runApp(const FirebaseErrorApp());
+  }
+}
+
+Future<void> _testGeminiConnection() async {
+  var stage = 'App Check';
+
+  try {
+    debugPrint('GEMINI TEST: requesting App Check token');
+
+    final token = await FirebaseAppCheck.instance.getToken().timeout(
+      const Duration(seconds: 180),
+    );
+
+    if (token == null || token.isEmpty) {
+      throw StateError('App Check returned no token.');
+    }
+
+    debugPrint('GEMINI TEST: App Check token received');
+
+    stage = 'Gemini response';
+
+    final model = FirebaseAI.googleAI().generativeModel(
+      model: 'gemini-3.5-flash-lite',
+    );
+
+    debugPrint('GEMINI TEST: sending request');
+
+    final response = await model
+        .generateContent([
+          Content.text('Reply with only: Connection successful.'),
+        ])
+        .timeout(const Duration(seconds: 90));
+
+    final text = response.text?.trim();
+
+    if (text == null || text.isEmpty) {
+      throw StateError('Gemini returned no text.');
+    }
+
+    debugPrint('GEMINI TEST SUCCESS: $text');
+  } catch (error) {
+    debugPrint('GEMINI TEST FAILED at $stage: $error');
   }
 }
 
