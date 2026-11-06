@@ -194,35 +194,57 @@ class _GeminiAdvisorPanelState extends State<GeminiAdvisorPanel> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'English or Sinhala · Advice only',
+                    'English or Sinhala · Review changes before saving',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                   const SizedBox(height: 12),
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      children: [
-                        for (final entry in const {
-                          'This month': 'Summarize my spending this month.',
-                          'Top categories':
-                              'Which categories have the highest spending?',
-                          'After bills': 'What budget remains after my recorded pending bills?',
-                          'Goals · සිංහල': 'Explain my active savings goal progress in Sinhala.',
-                        }.entries)
-                          Padding(
-                            padding: const EdgeInsets.only(right: 8),
-                            child: ActionChip(
-                              label: Text(entry.key),
-                              onPressed: disabled
-                                  ? null
-                                  : () {
-                                      controller.setDraft(entry.value);
-                                    },
-                            ),
-                          ),
-                      ],
-                    ),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      ChoiceChip(
+                        label: const Text('Advice'),
+                        selected: !controller.categoryMode,
+                        onSelected: disabled
+                            ? null
+                            : (_) => controller.setCategoryMode(false),
+                      ),
+                      ChoiceChip(
+                        label: const Text('Create category'),
+                        selected: controller.categoryMode,
+                        onSelected: disabled
+                            ? null
+                            : (_) => controller.setCategoryMode(true),
+                      ),
+                    ],
                   ),
+                  const SizedBox(height: 8),
+                  if (!controller.categoryMode)
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: [
+                          for (final entry in const {
+                            'This month': 'Summarize my spending this month.',
+                            'Top categories':
+                                'Which categories have the highest spending?',
+                            'After bills': 'What budget remains after my recorded pending bills?',
+                            'Goals · සිංහල': 'Explain my active savings goal progress in Sinhala.',
+                          }.entries)
+                            Padding(
+                              padding: const EdgeInsets.only(right: 8),
+                              child: ActionChip(
+                                label: Text(entry.key),
+                                onPressed: disabled
+                                    ? null
+                                    : () {
+                                        controller.setDraft(entry.value);
+                                      },
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
                   const SizedBox(height: 12),
                   TextField(
                     key: const ValueKey('advisor-question'),
@@ -234,8 +256,12 @@ class _GeminiAdvisorPanelState extends State<GeminiAdvisorPanel> {
                     maxLength: 1000,
                     scrollPadding: const EdgeInsets.all(32),
                     decoration: InputDecoration(
-                      hintText: 'Ask about your spending…',
-                      labelText: 'Your question',
+                      hintText: controller.categoryMode
+                          ? 'Gym කියලා category එකක් හදන්න'
+                          : 'Ask about your spending…',
+                      labelText: controller.categoryMode
+                          ? 'Category request'
+                          : 'Your question',
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(16),
                       ),
@@ -249,13 +275,20 @@ class _GeminiAdvisorPanelState extends State<GeminiAdvisorPanel> {
                             unawaited(controller.send());
                           },
                     icon: const Icon(Icons.auto_awesome_outlined, size: 18),
-                    label: const Text('Ask Gemini'),
+                    label: Text(
+                      controller.categoryMode
+                          ? 'Preview category'
+                          : 'Ask Gemini',
+                    ),
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Ask sends your question, financial summaries and category, '
-                    'bill and active goal names to Gemini. Expense titles and '
-                    'notes are excluded. Each question is independent.',
+                    controller.categoryMode
+                        ? 'Preview sends only your request to Gemini to extract a name. '
+                              'No record is created until you press Confirm create.'
+                        : 'Ask sends your question, financial summaries and category, '
+                              'bill and active goal names to Gemini. Expense titles and '
+                              'notes are excluded. Each question is independent.',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                   if (controller.busy) ...[
@@ -276,7 +309,7 @@ class _GeminiAdvisorPanelState extends State<GeminiAdvisorPanel> {
                         style: TextStyle(color: colors.error),
                       ),
                     ),
-                    if (!disabled)
+                    if (!controller.categoryMode && !disabled)
                       Align(
                         alignment: Alignment.centerLeft,
                         child: TextButton.icon(
@@ -286,7 +319,70 @@ class _GeminiAdvisorPanelState extends State<GeminiAdvisorPanel> {
                         ),
                       ),
                   ],
-                  if (controller.answer != null) ...[
+                  if (controller.categoryMode &&
+                      controller.actionMessage != null) ...[
+                    const SizedBox(height: 12),
+                    Semantics(
+                      liveRegion: true,
+                      child: Text(controller.actionMessage!),
+                    ),
+                  ],
+                  if (controller.categoryMode &&
+                      controller.pendingCategory != null) ...[
+                    const SizedBox(height: 16),
+                    Card(
+                      margin: EdgeInsets.zero,
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            const Text(
+                              'Review new category',
+                              style: TextStyle(fontWeight: FontWeight.w600),
+                            ),
+                            const SizedBox(height: 8),
+                            Text('Name: ${controller.pendingCategory!.name}'),
+                            const Text(
+                              'Action: Create one active expense category',
+                            ),
+                            const SizedBox(height: 12),
+                            Wrap(
+                              spacing: 12,
+                              runSpacing: 8,
+                              children: [
+                                FilledButton.icon(
+                                  onPressed: disabled
+                                      ? null
+                                      : () => unawaited(
+                                          controller.confirmCategory(),
+                                        ),
+                                  icon: const Icon(Icons.check),
+                                  label: Text(
+                                    controller.busy &&
+                                            controller.stage ==
+                                                'Saving category'
+                                        ? 'Saving…'
+                                        : controller.saveAttempted
+                                        ? 'Retry confirm'
+                                        : 'Confirm create',
+                                  ),
+                                ),
+                                OutlinedButton(
+                                  onPressed: disabled
+                                      ? null
+                                      : controller.cancelCategory,
+                                  child: const Text('Cancel'),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                  if (!controller.categoryMode &&
+                      controller.answer != null) ...[
                     const SizedBox(height: 16),
                     Card(
                       margin: EdgeInsets.zero,
@@ -314,11 +410,14 @@ class _GeminiAdvisorPanelState extends State<GeminiAdvisorPanel> {
                       ),
                     ),
                   ],
-                  if (controller.snapshot != null) ...[
+                  if (!controller.categoryMode &&
+                      controller.snapshot != null) ...[
                     const SizedBox(height: 12),
                     _facts(controller.snapshot!),
                   ],
-                  if (!controller.busy && controller.sessionValid)
+                  if (!controller.categoryMode &&
+                      !controller.busy &&
+                      controller.sessionValid)
                     Align(
                       alignment: Alignment.centerLeft,
                       child: TextButton.icon(
