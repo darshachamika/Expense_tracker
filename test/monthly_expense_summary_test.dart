@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import '../lib/models/expense.dart';
-import '../lib/models/monthly_expense_summary.dart';
+import 'package:expense_tracker/models/expense.dart';
+import 'package:expense_tracker/models/monthly_expense_summary.dart';
 
 Expense expense({
   required String id,

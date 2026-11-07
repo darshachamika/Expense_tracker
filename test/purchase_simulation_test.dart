@@ -1,9 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import '../lib/models/expense.dart';
-import '../lib/models/monthly_budget.dart';
-import '../lib/models/planned_bill.dart';
-import '../lib/models/purchase_simulation.dart';
+import 'package:expense_tracker/models/expense.dart';
+import 'package:expense_tracker/models/monthly_budget.dart';
+import 'package:expense_tracker/models/planned_bill.dart';
+import 'package:expense_tracker/models/purchase_simulation.dart';
 
 void main() {
   final date = DateTime(2026, 11, 4);

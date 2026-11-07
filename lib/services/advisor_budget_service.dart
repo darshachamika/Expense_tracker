@@ -118,8 +118,9 @@ class AdvisorBudgetService {
         final categoryDoc = await transaction.get(
           _owner.collection('categories').doc(categoryId),
         );
-        if (!categoryDoc.exists || budget == null)
+        if (!categoryDoc.exists || budget == null) {
           throw const BudgetPreviewChanged();
+        }
         final category = ExpenseCategory.fromFirestore(categoryDoc);
         if (category.archived || category.name != preview.categoryName) {
           throw const BudgetPreviewChanged();

@@ -75,8 +75,8 @@ class BillService {
 
       final current = PlannedBill.fromFirestore(snapshot);
 
-      if (current.isPaid) {
-        throw StateError('A paid bill cannot be edited.');
+      if (current.isPaid || current.archived) {
+        throw StateError('A paid or archived bill cannot be edited.');
       }
 
       // Keeps the stored series ID and payment metadata unchanged.
@@ -112,6 +112,10 @@ class BillService {
         }
 
         return existingExpenseId;
+      }
+
+      if (bill.archived) {
+        throw StateError('Restore this bill before recording a payment.');
       }
 
       // A stable ID prevents duplicate payment expenses.
@@ -174,6 +178,144 @@ class BillService {
 
       return expenseReference.id;
     });
+  }
+
+  /// Archives one paid occurrence. Its expense remains recorded.
+  Future<bool> setArchived(PlannedBill reviewed, {required bool archived}) async {
+    final reference = _billReference(reviewed.id);
+    return _firestore.runTransaction<bool>((transaction) async {
+      final snapshot = await transaction.get(reference);
+      if (!snapshot.exists) throw StateError('This bill no longer exists.');
+      final current = PlannedBill.fromFirestore(snapshot);
+      if (!current.isPaid) {
+        throw StateError('Only paid bills can be archived.');
+      }
+      if (current.archived == archived) return false;
+      _checkReviewedBill(current, reviewed);
+      transaction.update(reference, {
+        'archived': archived,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      return true;
+    });
+  }
+
+  /// Deletes one unpaid occurrence after checking the reviewed state.
+  Future<bool> deleteBill(PlannedBill reviewed) async {
+    final reference = _billReference(reviewed.id);
+    return _firestore.runTransaction<bool>((transaction) async {
+      final snapshot = await transaction.get(reference);
+      if (!snapshot.exists) return false;
+      final current = PlannedBill.fromFirestore(snapshot);
+      if (current.isPaid || current.archived) {
+        throw StateError('Use Undo payment or Archive for a paid bill.');
+      }
+      _checkReviewedBill(current, reviewed);
+      if (current.expenseId != null) {
+        throw StateError('This bill still has a payment link. Refresh its status before deleting.');
+      }
+      final expense = await transaction.get(_expenses.doc('bill_${current.id}'));
+      if (expense.exists) {
+        throw StateError('This bill has a payment expense. Refresh its status before deleting.');
+      }
+      transaction.delete(reference);
+      return true;
+    });
+  }
+
+  /// Reverses the reviewed payment and removes its linked expense atomically.
+  /// For monthly bills, only an untouched unpaid next occurrence is removed.
+  Future<bool> undoPayment(PlannedBill reviewed) async {
+    final reference = _billReference(reviewed.id);
+    return _firestore.runTransaction<bool>((transaction) async {
+      final snapshot = await transaction.get(reference);
+      if (!snapshot.exists) throw StateError('This bill no longer exists.');
+      final current = PlannedBill.fromFirestore(snapshot);
+      if (!current.isPaid) return false;
+      if (current.archived) {
+        throw StateError('Restore this bill before undoing its payment.');
+      }
+      _checkReviewedBill(current, reviewed);
+      final expenseId = current.expenseId;
+      if (expenseId != 'bill_${current.id}') {
+        throw StateError('The payment link could not be verified. Refresh the bill.');
+      }
+      final expenseReference = _expenses.doc(expenseId);
+      final expenseSnapshot = await transaction.get(expenseReference);
+      if (!expenseSnapshot.exists) {
+        throw StateError('The linked expense is missing. Check this bill before reversing it.');
+      }
+      final expense = Expense.fromFirestore(expenseSnapshot);
+      if (expense.title != current.title.trim() ||
+          expense.amountMinor != current.amountMinor ||
+          expense.categoryId != current.categoryId ||
+          expense.paymentMethod != current.paymentMethod ||
+          expense.note != current.note.trim()) {
+        throw StateError('The linked expense changed. Check this payment before reversing it.');
+      }
+
+      DocumentReference<Map<String, dynamic>>? nextReference;
+      final nextDate = current.nextDueDate;
+      if (nextDate != null) {
+        _validateId(current.seriesId);
+        final candidate = _bills.doc('${current.seriesId}_${_dateKey(nextDate)}');
+        final nextSnapshot = await transaction.get(candidate);
+        if (nextSnapshot.exists) {
+          final next = PlannedBill.fromFirestore(nextSnapshot);
+          if (next.isPaid || next.archived ||
+              next.expenseId != null ||
+              next.createdAt == null || next.updatedAt != next.createdAt ||
+              next.seriesId != current.seriesId ||
+              next.title != current.title ||
+              next.amountMinor != current.amountMinor ||
+              next.categoryId != current.categoryId ||
+              next.paymentMethod != current.paymentMethod ||
+              next.note != current.note ||
+              next.dueDate != nextDate ||
+              next.recurrence != current.recurrence ||
+              next.recurrenceDay != current.recurrenceDay) {
+            throw StateError(
+              'The next monthly bill has changed or been paid. '
+              'Undo is available only while that occurrence is untouched and unpaid.',
+            );
+          }
+          // Check the stable payment ID too, including inconsistent legacy data.
+          final nextExpense = await transaction.get(_expenses.doc('bill_${next.id}'));
+          if (nextExpense.exists) {
+            throw StateError('The next monthly bill has a payment expense. Check it before undoing.');
+          }
+          nextReference = candidate;
+        }
+      }
+
+      // All reads are complete before deleting the expense and resetting status.
+      transaction.delete(expenseReference);
+      if (nextReference != null) transaction.delete(nextReference);
+      transaction.update(reference, {
+        'paidAt': null,
+        'expenseId': null,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      return true;
+    });
+  }
+
+  void _checkReviewedBill(PlannedBill current, PlannedBill reviewed) {
+    if (current.seriesId != reviewed.seriesId ||
+        current.title != reviewed.title ||
+        current.amountMinor != reviewed.amountMinor ||
+        current.categoryId != reviewed.categoryId ||
+        current.paymentMethod != reviewed.paymentMethod ||
+        current.note != reviewed.note ||
+        current.dueDate != reviewed.dueDate ||
+        current.recurrence != reviewed.recurrence ||
+        current.recurrenceDay != reviewed.recurrenceDay ||
+        current.paidAt != reviewed.paidAt ||
+        current.expenseId != reviewed.expenseId ||
+        current.archived != reviewed.archived ||
+        current.updatedAt != reviewed.updatedAt) {
+      throw StateError('This bill changed after you reviewed it. Refresh and try again.');
+    }
   }
 
   DateTime _validatePaymentDate(DateTime value) {

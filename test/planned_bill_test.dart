@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import '../lib/models/planned_bill.dart';
+import 'package:expense_tracker/models/planned_bill.dart';
 
 PlannedBill bill({
   required DateTime dueDate,

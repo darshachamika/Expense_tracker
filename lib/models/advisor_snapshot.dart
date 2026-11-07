@@ -34,8 +34,8 @@ class AdvisorSnapshot {
     required this.pendingBillsMinor,
     required this.overdueBillsMinor,
     required this.activeGoalCount,
-    required Map<String, Object?> payload,
-  }) : _payload = payload;
+    required this._payload,
+  });
 
   int? get remainingMinor =>
       budget == null ? null : budget!.overallLimitMinor - summary.totalMinor;

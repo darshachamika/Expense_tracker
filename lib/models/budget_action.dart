@@ -63,8 +63,9 @@ class BudgetActionInput {
         ? int.parse(parts.last.padRight(2, '0'))
         : 0;
     final minor = rupees * 100 + cents;
-    if (minor <= 0)
+    if (minor <= 0) {
       throw const FormatException('The budget must be greater than zero.');
+    }
     return BudgetActionInput._(month, minor, instruction);
   }
 }

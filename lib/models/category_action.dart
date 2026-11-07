@@ -58,12 +58,14 @@ class CategoryPlan {
         }
         return CategoryPlan._(CategoryPlanIntent.createCategory, name);
       case 'needs_name':
-        if (data['name'] != '')
+        if (data['name'] != '') {
           throw const FormatException('Invalid category proposal.');
+        }
         return const CategoryPlan._(CategoryPlanIntent.needsName, null);
       case 'unsupported':
-        if (data['name'] != '')
+        if (data['name'] != '') {
           throw const FormatException('Invalid category proposal.');
+        }
         return const CategoryPlan._(CategoryPlanIntent.unsupported, null);
       default:
         throw const FormatException('Unsupported category proposal.');

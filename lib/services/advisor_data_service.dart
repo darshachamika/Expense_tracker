@@ -122,7 +122,7 @@ class AdvisorDataService {
               .map(SavingsContribution.fromFirestore)
               .fold<int>(
                 0,
-                (sum, contribution) => sum + contribution.amountMinor,
+                (total, contribution) => total + contribution.amountMinor,
               );
         }),
       );

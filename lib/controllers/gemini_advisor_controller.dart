@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 
 import '../models/advisor_snapshot.dart';
@@ -108,31 +107,20 @@ class GeminiAdvisorController extends ChangeNotifier {
   /// Injectable functions let lifecycle tests run without Firebase requests.
   GeminiAdvisorController({
     required this.userId,
-    required AdvisorLoader load,
-    required AdvisorAnswer ask,
+    required this._load,
+    required this._ask,
     required String? initialUserId,
     Stream<String?>? sessionChanges,
-    CategoryPlanner? planCategory,
-    CategoryLookup? findCategory,
-    CategoryExecutor? createCategory,
-    BudgetPlanner? planBudget,
-    BudgetPreviewBuilder? buildBudgetPreview,
-    BudgetExecutor? saveBudget,
-    ExpensePlanner? planExpense,
-    ExpensePreviewBuilder? buildExpensePreview,
-    ExpenseExecutor? saveExpense,
-  }) : _load = load,
-       _ask = ask,
-       _planCategory = planCategory,
-       _findCategory = findCategory,
-       _createCategory = createCategory,
-       _planBudget = planBudget,
-       _buildBudgetPreview = buildBudgetPreview,
-       _saveBudget = saveBudget,
-       _planExpense = planExpense,
-       _buildExpensePreview = buildExpensePreview,
-       _saveExpense = saveExpense,
-       _sessionValid = initialUserId == userId {
+    this._planCategory,
+    this._findCategory,
+    this._createCategory,
+    this._planBudget,
+    this._buildBudgetPreview,
+    this._saveBudget,
+    this._planExpense,
+    this._buildExpensePreview,
+    this._saveExpense,
+  }) : _sessionValid = initialUserId == userId {
     if (!_sessionValid) {
       _error = 'Your session changed. Close the advisor and sign in again.';
     }
@@ -217,8 +205,9 @@ class GeminiAdvisorController extends ChangeNotifier {
   }
 
   void cancelCategory() {
-    if (_disposed || !_sessionValid || _busy || _pendingCategory == null)
+    if (_disposed || !_sessionValid || _busy || _pendingCategory == null) {
       return;
+    }
     _pendingCategory = null;
     _actionMessage = _saveAttempted
         ? 'Preview dismissed. If a save was attempted, check Manage Categories. '
@@ -386,8 +375,9 @@ class GeminiAdvisorController extends ChangeNotifier {
         !budgetMode ||
         preview == null ||
         save == null ||
-        preview.userId != userId)
+        preview.userId != userId) {
       return;
+    }
     final request = ++_request;
     _busy = true;
     _saveAttempted = true;

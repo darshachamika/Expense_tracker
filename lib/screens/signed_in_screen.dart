@@ -106,8 +106,9 @@ class _SignedInScreenState extends State<SignedInScreen> {
         ),
         builder: (_) => GeminiAdvisorSheet(controller: _advisorController),
       );
-      if (!mounted || expand != true || !_advisorController.sessionValid)
+      if (!mounted || expand != true || !_advisorController.sessionValid) {
         return;
+      }
       await Navigator.of(context).push<void>(
         MaterialPageRoute<void>(
           builder: (_) => GeminiAdvisorScreen(

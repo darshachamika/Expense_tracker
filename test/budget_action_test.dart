@@ -1,8 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import '../lib/controllers/gemini_advisor_controller.dart';
-import '../lib/models/advisor_snapshot.dart';
-import '../lib/models/budget_action.dart';
+import 'package:expense_tracker/controllers/gemini_advisor_controller.dart';
+import 'package:expense_tracker/models/advisor_snapshot.dart';
+import 'package:expense_tracker/models/budget_action.dart';
 
 void main() {
   final now = DateTime(2026, 11, 6);

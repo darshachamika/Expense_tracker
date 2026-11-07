@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import '../lib/models/savings_goal.dart';
+import 'package:expense_tracker/models/savings_goal.dart';
 
 void main() {
   test('remaining amount and progress handle overfunding', () {

@@ -22,6 +22,7 @@ class PlannedBill {
   /// Example: 31 -> February 28 -> March 31.
   final int recurrenceDay;
 
+  final bool archived;
   final DateTime? paidAt;
   final String? expenseId;
   final DateTime? createdAt;
@@ -38,6 +39,7 @@ class PlannedBill {
     required this.recurrenceDay,
     this.recurrence = BillRecurrence.none,
     this.note = '',
+    this.archived = false,
     this.paidAt,
     this.expenseId,
     this.createdAt,
@@ -103,6 +105,7 @@ class PlannedBill {
       dueDate: (data['dueDate'] as Timestamp).toDate(),
       recurrence: BillRecurrence.values.byName(data['recurrence'] as String),
       recurrenceDay: data['recurrenceDay'] as int,
+      archived: data['archived'] as bool? ?? false,
       paidAt: (data['paidAt'] as Timestamp?)?.toDate(),
       expenseId: data['expenseId'] as String?,
       createdAt: (data['createdAt'] as Timestamp?)?.toDate(),
@@ -130,6 +133,7 @@ class PlannedBill {
     return {
       ...toUpdateMap(),
       'seriesId': seriesId,
+      'archived': false,
       'paidAt': null,
       'expenseId': null,
       'createdAt': FieldValue.serverTimestamp(),

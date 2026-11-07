@@ -5,6 +5,8 @@ import '../models/planned_bill.dart';
 import '../services/bill_service.dart';
 import 'edit_bill_screen.dart';
 
+enum _BillAction { undoPayment, archive, restore, delete }
+
 class PlannedBillsScreen extends StatefulWidget {
   final String userId;
 
@@ -19,6 +21,7 @@ class _PlannedBillsScreenState extends State<PlannedBillsScreen> {
   late final Stream<List<PlannedBill>> _billsStream;
 
   bool _showPaid = false;
+  bool _showArchived = false;
   bool _busy = false;
 
   @override
@@ -107,8 +110,7 @@ class _PlannedBillsScreenState extends State<PlannedBillsScreen> {
                 ],
                 const SizedBox(height: 12),
                 const Text(
-                  'The paid bill and its linked expense cannot be '
-                  'edited or deleted separately.',
+                  'Use Undo payment from this bill to reverse the recorded payment.',
                 ),
               ],
             ),
@@ -167,6 +169,107 @@ class _PlannedBillsScreenState extends State<PlannedBillsScreen> {
     }
   }
 
+  Future<void> _changeBill(PlannedBill bill, _BillAction action) async {
+    if (_busy) return;
+    final monthly = bill.recurrence == BillRecurrence.monthly;
+    final undoRecurrence = monthly
+        ? '\n\nThe untouched next monthly bill will also be removed. '
+              'If it has been edited or paid, Undo will stop.'
+        : '';
+    final deleteRecurrence = monthly
+        ? ' Its monthly reminders will stop because the next occurrence '
+              'is created when this bill is paid.'
+        : '';
+    final (title, explanation, button, success) = switch (action) {
+      _BillAction.undoPayment => (
+        'Undo this payment?',
+        'Remove the linked ${_money(bill.amountMinor)} expense and return '
+            'this bill to Pending. Spending for its payment month will decrease.'
+            '$undoRecurrence',
+        'Undo payment',
+        'Payment reversed. The bill is pending and its expense was removed.',
+      ),
+      _BillAction.archive => (
+        'Archive this paid bill?',
+        'Move this paid occurrence to Archived. Its payment history and '
+            'recorded spending will stay available.',
+        'Archive',
+        'Paid bill archived.',
+      ),
+      _BillAction.restore => (
+        'Restore this bill?',
+        'Return this paid occurrence to the paid bills list.',
+        'Restore',
+        'Paid bill restored.',
+      ),
+      _BillAction.delete => (
+        'Delete this pending bill?',
+        'Delete this unpaid occurrence.$deleteRecurrence',
+        'Delete bill',
+        'Pending bill deleted.',
+      ),
+    };
+    setState(() => _busy = true);
+    try {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: Text(title),
+          content: SingleChildScrollView(
+            child: Text('${bill.title}\n\n$explanation'),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: Text(button),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true || !mounted) return;
+      final changed = await switch (action) {
+        _BillAction.undoPayment => _service.undoPayment(bill),
+        _BillAction.archive => _service.setArchived(bill, archived: true),
+        _BillAction.restore => _service.setArchived(bill, archived: false),
+        _BillAction.delete => _service.deleteBill(bill),
+      };
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(changed ? success : 'The bill already has this status.'),
+        ),
+      );
+    } on StateError catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.message.toString())),
+      );
+    } on FirebaseException catch (error) {
+      debugPrint('Bill action failed (${error.code}).');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(
+          'Could not complete the action (${error.code}). '
+          'Refresh the bill list to check its status before retrying.',
+        )),
+      );
+    } catch (error) {
+      debugPrint('Bill action failed (${error.runtimeType}).');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text(
+          'Could not complete the action. Refresh the bill list before retrying.',
+        )),
+      );
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return PopScope(
@@ -191,6 +294,14 @@ class _PlannedBillsScreenState extends State<PlannedBillsScreen> {
                         ? null
                         : (value) => setState(() => _showPaid = value),
                   ),
+                  if (_showPaid)
+                    SwitchListTile(
+                      title: const Text('Show archived bills'),
+                      value: _showArchived,
+                      onChanged: _busy
+                          ? null
+                          : (value) => setState(() => _showArchived = value),
+                    ),
                   if (_busy) const LinearProgressIndicator(),
                   Expanded(
                     child: StreamBuilder<List<PlannedBill>>(
@@ -215,7 +326,8 @@ class _PlannedBillsScreenState extends State<PlannedBillsScreen> {
                         }
 
                         final bills = snapshot.data!
-                            .where((bill) => bill.isPaid == _showPaid)
+                            .where((bill) => bill.isPaid == _showPaid &&
+                                bill.archived == (_showPaid && _showArchived))
                             .toList();
 
                         if (bills.isEmpty) {
@@ -223,7 +335,11 @@ class _PlannedBillsScreenState extends State<PlannedBillsScreen> {
                             child: Padding(
                               padding: const EdgeInsets.all(24),
                               child: Text(
-                                _showPaid ? 'No paid bills yet.' : 'No pending bills. Create your first bill.',
+                                _showPaid
+                                    ? _showArchived
+                                        ? 'No archived bills.'
+                                        : 'No paid bills yet.'
+                                    : 'No pending bills. Create your first bill.',
                               ),
                             ),
                           );
@@ -279,8 +395,36 @@ class _PlannedBillsScreenState extends State<PlannedBillsScreen> {
                                     ),
                                     if (bill.isPaid) ...[
                                       const SizedBox(height: 8),
-                                      const Text(
-                                        'Payment recorded • linked expense created',
+                                      Text(bill.archived
+                                          ? 'Archived • payment history retained'
+                                          : 'Payment recorded • linked expense created'),
+                                      const SizedBox(height: 12),
+                                      Wrap(
+                                        spacing: 12,
+                                        runSpacing: 8,
+                                        children: [
+                                          if (bill.archived)
+                                            OutlinedButton.icon(
+                                              onPressed: _busy ? null
+                                                  : () => _changeBill(bill, _BillAction.restore),
+                                              icon: const Icon(Icons.unarchive_outlined),
+                                              label: const Text('Restore'),
+                                            )
+                                          else ...[
+                                            OutlinedButton.icon(
+                                              onPressed: _busy ? null
+                                                  : () => _changeBill(bill, _BillAction.undoPayment),
+                                              icon: const Icon(Icons.undo),
+                                              label: const Text('Undo payment'),
+                                            ),
+                                            OutlinedButton.icon(
+                                              onPressed: _busy ? null
+                                                  : () => _changeBill(bill, _BillAction.archive),
+                                              icon: const Icon(Icons.archive_outlined),
+                                              label: const Text('Archive'),
+                                            ),
+                                          ],
+                                        ],
                                       ),
                                     ] else ...[
                                       const SizedBox(height: 12),
@@ -296,6 +440,12 @@ class _PlannedBillsScreenState extends State<PlannedBillsScreen> {
                                               Icons.edit_outlined,
                                             ),
                                             label: const Text('Edit'),
+                                          ),
+                                          OutlinedButton.icon(
+                                            onPressed: _busy ? null
+                                                : () => _changeBill(bill, _BillAction.delete),
+                                            icon: const Icon(Icons.delete_outline),
+                                            label: const Text('Delete'),
                                           ),
                                           FilledButton.icon(
                                             onPressed: _busy

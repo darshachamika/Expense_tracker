@@ -3,9 +3,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import '../lib/controllers/gemini_advisor_controller.dart';
-import '../lib/models/advisor_snapshot.dart';
-import '../lib/widgets/gemini_advisor_panel.dart';
+import 'package:expense_tracker/controllers/gemini_advisor_controller.dart';
+import 'package:expense_tracker/models/advisor_snapshot.dart';
+import 'package:expense_tracker/widgets/gemini_advisor_panel.dart';
 
 AdvisorSnapshot snapshot() => AdvisorSnapshot.calculate(
   now: DateTime(2026, 11, 5),
