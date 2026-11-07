@@ -28,7 +28,7 @@ class _GeminiAdvisorScreenState extends State<GeminiAdvisorScreen> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Gemini advisor')),
+    appBar: AppBar(title: const Text('Ripple')),
     body: SafeArea(
       child: Center(
         child: ConstrainedBox(

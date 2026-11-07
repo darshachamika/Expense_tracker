@@ -1,5 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import '../widgets/flow_visuals.dart';
+import '../widgets/flow_format.dart';
 
 import '../models/planned_bill.dart';
 import '../services/bill_service.dart';
@@ -9,8 +11,10 @@ enum _BillAction { undoPayment, archive, restore, delete }
 
 class PlannedBillsScreen extends StatefulWidget {
   final String userId;
+  final VoidCallback? onOpenAdvisor;
+  final ValueChanged<int>? onNavigate;
 
-  const PlannedBillsScreen({super.key, required this.userId});
+  const PlannedBillsScreen({super.key, required this.userId, this.onOpenAdvisor, this.onNavigate});
 
   @override
   State<PlannedBillsScreen> createState() => _PlannedBillsScreenState();
@@ -270,210 +274,74 @@ class _PlannedBillsScreenState extends State<PlannedBillsScreen> {
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return PopScope(
-      canPop: !_busy,
-      child: Scaffold(
-        appBar: AppBar(title: const Text('Planned Bills')),
-        floatingActionButton: FloatingActionButton.extended(
-          onPressed: _busy ? null : () => _openEditor(),
-          icon: const Icon(Icons.add),
-          label: const Text('New bill'),
+  Widget _billCard(PlannedBill bill) {
+    final overdue = bill.status() == PlannedBillStatus.overdue;
+    return Card(child: Padding(padding: const EdgeInsets.all(14), child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      FlowCategoryIcon(category: bill.title.toLowerCase().contains('water') ? 'water' : bill.title.toLowerCase().contains('internet') ? 'internet' : 'electricity'),
+      const SizedBox(width: 12),
+      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(bill.title, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+        const SizedBox(height: 5),
+        Text(bill.isPaid ? 'Paid ${FlowFormat.shortDate(bill.paidAt!.toLocal())}' : 'Due ${FlowFormat.shortDate(bill.dueDate.toLocal())}', style: TextStyle(fontSize: 12, color: overdue ? Theme.of(context).colorScheme.error : const Color(0xFF53627D))),
+        if (overdue) const Text('Overdue', style: TextStyle(color: Colors.red, fontSize: 11)),
+        if (bill.recurrence == BillRecurrence.monthly) const Text('Monthly', style: TextStyle(fontSize: 11, color: Color(0xFF53627D))),
+        if (bill.isPaid) Padding(padding: const EdgeInsets.only(top: 6), child: Text(bill.archived ? 'Archived • history retained' : '✓ Paid', style: const TextStyle(color: Color(0xFF008879), fontSize: 12, fontWeight: FontWeight.w700))),
+      ])),
+      const SizedBox(width: 8),
+      ConstrainedBox(constraints: const BoxConstraints(maxWidth: 120), child: Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+        Text(FlowFormat.money(bill.amountMinor), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+        if (!bill.isPaid) ...[const SizedBox(height: 8), FilledButton(onPressed: _busy ? null : () => _markAsPaid(bill), style: FilledButton.styleFrom(minimumSize: const Size(0, 34), padding: const EdgeInsets.symmetric(horizontal: 12)), child: const Text('Mark paid', style: TextStyle(fontSize: 12)))],
+        PopupMenuButton<String>(enabled: !_busy, tooltip: 'Bill actions',
+          onSelected: (action) {
+            if (action == 'edit') { _openEditor(bill); }
+            else if (action == 'delete') { _changeBill(bill, _BillAction.delete); }
+            else if (action == 'undo') { _changeBill(bill, _BillAction.undoPayment); }
+            else if (action == 'archive') { _changeBill(bill, _BillAction.archive); }
+            else if (action == 'restore') { _changeBill(bill, _BillAction.restore); }
+          },
+          itemBuilder: (_) => [
+            if (!bill.isPaid) ...[const PopupMenuItem(value: 'edit', child: Text('Edit')), const PopupMenuItem(value: 'delete', child: Text('Delete'))],
+            if (bill.isPaid && !bill.archived) ...[const PopupMenuItem(value: 'undo', child: Text('Undo payment')), const PopupMenuItem(value: 'archive', child: Text('Archive'))],
+            if (bill.archived) const PopupMenuItem(value: 'restore', child: Text('Restore')),
+          ],
         ),
-        body: SafeArea(
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 800),
-              child: Column(
-                children: [
-                  SwitchListTile(
-                    title: const Text('Show paid bills'),
-                    value: _showPaid,
-                    onChanged: _busy
-                        ? null
-                        : (value) => setState(() => _showPaid = value),
-                  ),
-                  if (_showPaid)
-                    SwitchListTile(
-                      title: const Text('Show archived bills'),
-                      value: _showArchived,
-                      onChanged: _busy
-                          ? null
-                          : (value) => setState(() => _showArchived = value),
-                    ),
-                  if (_busy) const LinearProgressIndicator(),
-                  Expanded(
-                    child: StreamBuilder<List<PlannedBill>>(
-                      stream: _billsStream,
-                      builder: (context, snapshot) {
-                        if (snapshot.hasError) {
-                          return const Center(
-                            child: Padding(
-                              padding: EdgeInsets.all(24),
-                              child: Text(
-                                'Could not load bills. '
-                                'Check your connection and Firestore rules.',
-                              ),
-                            ),
-                          );
-                        }
-
-                        if (!snapshot.hasData) {
-                          return const Center(
-                            child: CircularProgressIndicator(),
-                          );
-                        }
-
-                        final bills = snapshot.data!
-                            .where((bill) => bill.isPaid == _showPaid &&
-                                bill.archived == (_showPaid && _showArchived))
-                            .toList();
-
-                        if (bills.isEmpty) {
-                          return Center(
-                            child: Padding(
-                              padding: const EdgeInsets.all(24),
-                              child: Text(
-                                _showPaid
-                                    ? _showArchived
-                                        ? 'No archived bills.'
-                                        : 'No paid bills yet.'
-                                    : 'No pending bills. Create your first bill.',
-                              ),
-                            ),
-                          );
-                        }
-
-                        final now = DateTime.now();
-
-                        return ListView.builder(
-                          padding: const EdgeInsets.fromLTRB(20, 8, 20, 100),
-                          itemCount: bills.length,
-                          itemBuilder: (context, index) {
-                            final bill = bills[index];
-                            final status = bill.status(now: now);
-
-                            final statusLabel = switch (status) {
-                              PlannedBillStatus.upcoming => 'Upcoming',
-                              PlannedBillStatus.overdue => 'Overdue',
-                              PlannedBillStatus.paid => 'Paid',
-                            };
-
-                            final repeatLabel =
-                                bill.recurrence == BillRecurrence.monthly
-                                ? 'Monthly'
-                                : 'One time';
-
-                            return Card(
-                              child: Padding(
-                                padding: const EdgeInsets.all(16),
-                                child: Column(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.stretch,
-                                  children: [
-                                    Text(
-                                      bill.title,
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .titleMedium,
-                                    ),
-                                    const SizedBox(height: 8),
-                                    Text(_money(bill.amountMinor)),
-                                    Text('Due: ${_dateLabel(bill.dueDate)}'),
-                                    const SizedBox(height: 6),
-                                    Text(
-                                      '$statusLabel • $repeatLabel',
-                                      style: TextStyle(
-                                        color:
-                                            status == PlannedBillStatus.overdue
-                                            ? Theme.of(context)
-                                                  .colorScheme
-                                                  .error
-                                            : null,
-                                      ),
-                                    ),
-                                    if (bill.isPaid) ...[
-                                      const SizedBox(height: 8),
-                                      Text(bill.archived
-                                          ? 'Archived • payment history retained'
-                                          : 'Payment recorded • linked expense created'),
-                                      const SizedBox(height: 12),
-                                      Wrap(
-                                        spacing: 12,
-                                        runSpacing: 8,
-                                        children: [
-                                          if (bill.archived)
-                                            OutlinedButton.icon(
-                                              onPressed: _busy ? null
-                                                  : () => _changeBill(bill, _BillAction.restore),
-                                              icon: const Icon(Icons.unarchive_outlined),
-                                              label: const Text('Restore'),
-                                            )
-                                          else ...[
-                                            OutlinedButton.icon(
-                                              onPressed: _busy ? null
-                                                  : () => _changeBill(bill, _BillAction.undoPayment),
-                                              icon: const Icon(Icons.undo),
-                                              label: const Text('Undo payment'),
-                                            ),
-                                            OutlinedButton.icon(
-                                              onPressed: _busy ? null
-                                                  : () => _changeBill(bill, _BillAction.archive),
-                                              icon: const Icon(Icons.archive_outlined),
-                                              label: const Text('Archive'),
-                                            ),
-                                          ],
-                                        ],
-                                      ),
-                                    ] else ...[
-                                      const SizedBox(height: 12),
-                                      Wrap(
-                                        spacing: 12,
-                                        runSpacing: 8,
-                                        children: [
-                                          OutlinedButton.icon(
-                                            onPressed: _busy
-                                                ? null
-                                                : () => _openEditor(bill),
-                                            icon: const Icon(
-                                              Icons.edit_outlined,
-                                            ),
-                                            label: const Text('Edit'),
-                                          ),
-                                          OutlinedButton.icon(
-                                            onPressed: _busy ? null
-                                                : () => _changeBill(bill, _BillAction.delete),
-                                            icon: const Icon(Icons.delete_outline),
-                                            label: const Text('Delete'),
-                                          ),
-                                          FilledButton.icon(
-                                            onPressed: _busy
-                                                ? null
-                                                : () => _markAsPaid(bill),
-                                            icon: const Icon(
-                                              Icons.check_circle_outline,
-                                            ),
-                                            label: const Text('Mark as paid'),
-                                          ),
-                                        ],
-                                      ),
-                                    ],
-                                  ],
-                                ),
-                              ),
-                            );
-                          },
-                        );
-                      },
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
+      ])),
+    ])));
   }
+
+  @override
+  Widget build(BuildContext context) => PopScope(canPop: !_busy, child: Scaffold(
+    appBar: AppBar(title: const Text('Bills')),
+    bottomNavigationBar: widget.onNavigate == null ? null : FlowBottomNav(selectedIndex: 2, onSelected: _busy ? null : widget.onNavigate),
+    floatingActionButtonLocation: const FlowFabLocation(),
+    floatingActionButton: FlowActions(onAdvisor: widget.onOpenAdvisor, primary: FloatingActionButton(onPressed: _busy ? null : () => _openEditor(), tooltip: 'New bill', child: const Icon(Icons.add))),
+    body: SafeArea(child: Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 480), child: Column(children: [
+      Padding(padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12), child: SizedBox(width: double.infinity, child: SegmentedButton<int>(
+        segments: const [ButtonSegment(value: 0, label: Text('Upcoming')), ButtonSegment(value: 1, label: Text('Paid')), ButtonSegment(value: 2, label: Text('Archived'))],
+        selected: {_showArchived ? 2 : _showPaid ? 1 : 0}, showSelectedIcon: false,
+        onSelectionChanged: _busy ? null : (selection) => setState(() { _showPaid = selection.single != 0; _showArchived = selection.single == 2; }),
+      ))),
+      if (_busy) const LinearProgressIndicator(),
+      Expanded(child: StreamBuilder<List<PlannedBill>>(stream: _billsStream, builder: (context, snapshot) {
+        if (snapshot.hasError) return const Center(child: Padding(padding: EdgeInsets.all(24), child: Text('Could not load bills. Check your connection and Firestore rules.')));
+        if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+        final bills = snapshot.data!.where((bill) => bill.isPaid == _showPaid && bill.archived == (_showPaid && _showArchived)).toList()..sort((a, b) => _showPaid ? b.paidAt!.compareTo(a.paidAt!) : a.dueDate.compareTo(b.dueDate));
+        final recent = snapshot.data!.where((bill) => bill.isPaid && !bill.archived).toList()..sort((a, b) => b.paidAt!.compareTo(a.paidAt!));
+        return ListView(padding: const EdgeInsets.fromLTRB(18, 4, 18, 130), children: [
+          FlowLiquidCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(_showArchived ? 'Archived payments' : _showPaid ? 'Paid bills' : 'Upcoming payments', style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600)),
+            const SizedBox(height: 12), Text(FlowFormat.money(bills.fold<int>(0, (sum, bill) => sum + bill.amountMinor)), style: const TextStyle(color: Colors.white, fontSize: 33, fontWeight: FontWeight.w800)),
+            const SizedBox(height: 8), Text('${bills.length} bills in this view'),
+          ])),
+          const SizedBox(height: 16),
+          if (bills.isEmpty) const Padding(padding: EdgeInsets.all(24), child: Text('No bills in this view.')),
+          ...bills.map(_billCard),
+          if (!_showPaid && recent.isNotEmpty) ...[
+            const SizedBox(height: 20), const Text('Recently paid', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
+            ...recent.take(3).map(_billCard),
+          ],
+        ]);
+      })),
+    ])))),
+  ));
 }

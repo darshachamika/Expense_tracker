@@ -50,6 +50,30 @@ class AuthService {
     }
   }
 
+  Future<UserCredential> signInWithEmail({
+    required String email,
+    required String password,
+  }) {
+    return _auth.signInWithEmailAndPassword(
+      email: email.trim(),
+      password: password,
+    );
+  }
+
+  Future<UserCredential> createAccount({
+    required String email,
+    required String password,
+  }) {
+    return _auth.createUserWithEmailAndPassword(
+      email: email.trim(),
+      password: password,
+    );
+  }
+
+  Future<void> resetPassword(String email) {
+    return _auth.sendPasswordResetEmail(email: email.trim());
+  }
+
   Future<void> signOut() async {
     // End the Firebase session first.
     await _auth.signOut();

@@ -1,16 +1,25 @@
+import 'dart:async';
+
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 
 import 'firebase_options.dart';
 import 'screens/auth_gate.dart';
+import 'theme/flow_theme.dart';
+import 'widgets/flow_video_launch.dart';
+import 'widgets/flow_startup_gate.dart';
+import 'widgets/flow_app_water.dart';
 
 import 'package:firebase_ai/firebase_ai.dart';
 import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:flutter/foundation.dart';
 
-Future<void> main() async {
+void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  runApp(ExpenseTrackerApp(initialize: _initializeFirebase));
+}
 
+Future<void> _initializeFirebase() async {
   try {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
@@ -33,21 +42,19 @@ Future<void> main() async {
       );
     }
 
-    runApp(const ExpenseTrackerApp());
-
     const runGeminiTest = bool.fromEnvironment(
       'RUN_GEMINI_TEST',
       defaultValue: false,
     );
 
     if (kIsWeb && kDebugMode && runGeminiTest) {
-      await _testGeminiConnection();
+      unawaited(_testGeminiConnection());
     }
   } catch (error, stackTrace) {
     debugPrint('Firebase initialization failed: $error');
     debugPrintStack(stackTrace: stackTrace);
 
-    runApp(const FirebaseErrorApp());
+    rethrow;
   }
 }
 
@@ -93,30 +100,37 @@ Future<void> _testGeminiConnection() async {
   }
 }
 
-class ExpenseTrackerApp extends StatelessWidget {
-  const ExpenseTrackerApp({super.key});
+class ExpenseTrackerApp extends StatefulWidget {
+  final Future<void>? initialization;
+  final Future<void> Function()? initialize;
+  const ExpenseTrackerApp({super.key, this.initialization, this.initialize});
 
   @override
+  State<ExpenseTrackerApp> createState() => _ExpenseTrackerAppState();
+}
+
+class _ExpenseTrackerAppState extends State<ExpenseTrackerApp> {
+  @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Expense Tracker',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF6750A4),
-          brightness: Brightness.light,
+    return ValueListenableBuilder<ThemeMode>(
+      valueListenable: FlowTheme.appearance,
+      builder: (context, mode, _) => MaterialApp(
+        title: 'Flow — Expense Tracker',
+        debugShowCheckedModeBanner: false,
+        theme: FlowTheme.light,
+        darkTheme: FlowTheme.dark,
+        themeMode: mode,
+        builder: (context, child) =>
+            FlowAppWater(child: child ?? const SizedBox.shrink()),
+        home: FlowVideoLaunch(
+          child: FlowStartupGate(
+            initialization: widget.initialization,
+            initialize: widget.initialize,
+            destination: const AuthGate(),
+            errorBuilder: (context, error) => const FirebaseErrorApp(),
+          ),
         ),
       ),
-      darkTheme: ThemeData(
-        useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF6750A4),
-          brightness: Brightness.dark,
-        ),
-      ),
-      themeMode: ThemeMode.system,
-      home: const AuthGate(),
     );
   }
 }

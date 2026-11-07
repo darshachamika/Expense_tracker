@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../widgets/flow_visuals.dart';
+import '../widgets/flow_format.dart';
 
 import '../models/expense.dart';
 import '../models/monthly_budget.dart';
@@ -9,8 +11,10 @@ import '../services/category_service.dart';
 
 class MonthlyBudgetScreen extends StatefulWidget {
   final String userId;
+  final VoidCallback? onOpenAdvisor;
+  final ValueChanged<int>? onNavigate;
 
-  const MonthlyBudgetScreen({super.key, required this.userId});
+  const MonthlyBudgetScreen({super.key, required this.userId, this.onOpenAdvisor, this.onNavigate});
 
   @override
   State<MonthlyBudgetScreen> createState() => _MonthlyBudgetScreenState();
@@ -39,14 +43,7 @@ class _MonthlyBudgetScreenState extends State<MonthlyBudgetScreen> {
         .watchCategories();
   }
 
-  String _money(int amountMinor) {
-    final absolute = amountMinor.abs();
-    final rupees = absolute ~/ 100;
-    final cents = (absolute % 100).toString().padLeft(2, '0');
-    final sign = amountMinor < 0 ? '-' : '';
-
-    return '${sign}Rs. $rupees.$cents';
-  }
+  String _money(int amountMinor) => FlowFormat.money(amountMinor);
 
   String get _monthLabel {
     const names = [
@@ -278,7 +275,7 @@ class _MonthlyBudgetScreenState extends State<MonthlyBudgetScreen> {
                       ? colors.error
                       : hasLimit && spent * 100 >= limit * 80
                       ? Colors.orange
-                      : colors.primary;
+                      : FlowCategoryIcon.colorFor(name);
 
                   String? warning;
                   if (hasLimit) {
@@ -295,84 +292,28 @@ class _MonthlyBudgetScreenState extends State<MonthlyBudgetScreen> {
                       hasLimit || (category != null && !category.archived);
 
                   return Card(
-                    margin: const EdgeInsets.only(bottom: 12),
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Text(
-                            name,
-                            style: Theme.of(context).textTheme.titleMedium,
-                          ),
-                          const SizedBox(height: 8),
-                          _summaryRow('Spent', _money(spent)),
-                          _summaryRow(
-                            'Limit',
-                            hasLimit ? _money(limit) : 'Not set',
-                          ),
-                          if (hasLimit) ...[
-                            _summaryRow(
-                              remaining < 0 ? 'Over budget' : 'Remaining',
-                              _money(remaining.abs()),
-                            ),
-                            const SizedBox(height: 8),
-                            LinearProgressIndicator(
-                              value: progress.clamp(0.0, 1.0).toDouble(),
-                              minHeight: 8,
-                              color: color,
-                              backgroundColor: colors.surfaceContainerHighest,
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              '${(progress * 100).toStringAsFixed(1)}% used',
-                            ),
+                    margin: const EdgeInsets.only(bottom: 10),
+                    child: InkWell(borderRadius: BorderRadius.circular(22),
+                      onTap: _saving || !canSetLimit ? null : () => _changeCategoryLimit(budget: budget, categoryId: categoryId, categoryName: name),
+                      child: Padding(padding: const EdgeInsets.all(14), child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        FlowCategoryIcon(category: name), const SizedBox(width: 12),
+                        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          Text(name, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+                          const SizedBox(height: 6),
+                          Text(hasLimit ? '${_money(spent)} / ${_money(limit)}' : '${_money(spent)} spent • No limit', style: const TextStyle(fontSize: 12)),
+                          const SizedBox(height: 10),
+                          if (hasLimit) LinearProgressIndicator(value: progress.clamp(0.0, 1.0).toDouble(), minHeight: 7, color: color),
+                          if (warning != null) Padding(padding: const EdgeInsets.only(top: 6), child: Text(warning, style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.w600))),
+                          if (hasLimit && warning == null) Padding(padding: const EdgeInsets.only(top: 6), child: Text('${_money(remaining)} left', style: const TextStyle(fontSize: 11, color: Color(0xFF53627D)))),
+                        ])),
+                        SizedBox(width: 32, child: PopupMenuButton<String>(enabled: !_saving, padding: EdgeInsets.zero, tooltip: 'Category budget actions',
+                          onSelected: (action) => _changeCategoryLimit(budget: budget, categoryId: categoryId, categoryName: name, remove: action == 'remove'),
+                          itemBuilder: (_) => [
+                            if (canSetLimit) PopupMenuItem(value: 'edit', child: Text(hasLimit ? 'Edit limit' : 'Set limit')),
+                            if (hasLimit) const PopupMenuItem(value: 'remove', child: Text('Remove limit')),
                           ],
-                          if (warning != null) ...[
-                            const SizedBox(height: 8),
-                            Text(
-                              warning,
-                              style: TextStyle(
-                                color: color,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ],
-                          const SizedBox(height: 8),
-                          Wrap(
-                            spacing: 8,
-                            children: [
-                              TextButton.icon(
-                                onPressed: _saving || !canSetLimit
-                                    ? null
-                                    : () => _changeCategoryLimit(
-                                        budget: budget,
-                                        categoryId: categoryId,
-                                        categoryName: name,
-                                      ),
-                                icon: Icon(
-                                  hasLimit ? Icons.edit_outlined : Icons.add,
-                                ),
-                                label: Text(
-                                  hasLimit ? 'Edit limit' : 'Set limit',
-                                ),
-                              ),
-                              if (hasLimit)
-                                TextButton(
-                                  onPressed: _saving
-                                      ? null
-                                      : () => _changeCategoryLimit(
-                                          budget: budget,
-                                          categoryId: categoryId,
-                                          categoryName: name,
-                                          remove: true,
-                                        ),
-                                  child: const Text('Remove limit'),
-                                ),
-                            ],
-                          ),
-                        ],
-                      ),
+                        )),
+                      ])),
                     ),
                   );
                 },
@@ -380,25 +321,6 @@ class _MonthlyBudgetScreenState extends State<MonthlyBudgetScreen> {
           ],
         );
       },
-    );
-  }
-
-  Widget _summaryRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(
-        children: [
-          Expanded(child: Text(label)),
-          const SizedBox(width: 16),
-          Flexible(
-            child: Text(
-              value,
-              textAlign: TextAlign.end,
-              style: const TextStyle(fontWeight: FontWeight.w600),
-            ),
-          ),
-        ],
-      ),
     );
   }
 
@@ -422,16 +344,7 @@ class _MonthlyBudgetScreenState extends State<MonthlyBudgetScreen> {
     final remainingMinor = hasBudget ? limitMinor - spentMinor : 0;
     final progress = hasBudget ? spentMinor / limitMinor : 0.0;
 
-    final reachedLimit = hasBudget && spentMinor >= limitMinor;
     final nearLimit = hasBudget && spentMinor * 100 >= limitMinor * 80;
-
-    final colors = Theme.of(context).colorScheme;
-    final progressColor = reachedLimit
-        ? colors.error
-        : nearLimit
-        ? Colors.orange
-        : colors.primary;
-
     String? warning;
 
     if (hasBudget) {
@@ -445,7 +358,7 @@ class _MonthlyBudgetScreenState extends State<MonthlyBudgetScreen> {
     }
 
     return ListView(
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.fromLTRB(24, 24, 24, 164),
       children: [
         Row(
           children: [
@@ -481,55 +394,19 @@ class _MonthlyBudgetScreenState extends State<MonthlyBudgetScreen> {
           ),
         ),
         const SizedBox(height: 8),
-        const Text('Track spending against the selected month’s budget.'),
-        const SizedBox(height: 24),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Monthly overview',
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
-                const SizedBox(height: 16),
-                _summaryRow(
-                  'Budget',
-                  hasBudget ? _money(limitMinor) : 'Not set',
-                ),
-                _summaryRow('Spent', _money(spentMinor)),
-                if (hasBudget)
-                  _summaryRow(
-                    remainingMinor < 0 ? 'Over budget' : 'Remaining',
-                    _money(remainingMinor.abs()),
-                  ),
-                _summaryRow('Expenses', '${expenses.length}'),
-                if (hasBudget) ...[
-                  const SizedBox(height: 16),
-                  LinearProgressIndicator(
-                    value: progress.clamp(0.0, 1.0).toDouble(),
-                    minHeight: 10,
-                    color: progressColor,
-                    backgroundColor: colors.surfaceContainerHighest,
-                  ),
-                  const SizedBox(height: 8),
-                  Text('${(progress * 100).toStringAsFixed(1)}% used'),
-                ],
-                if (warning != null) ...[
-                  const SizedBox(height: 16),
-                  Text(
-                    warning,
-                    style: TextStyle(
-                      color: progressColor,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ),
+        FlowLiquidCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('Monthly budget', style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w600)),
+          const SizedBox(height: 12),
+          Text(hasBudget ? _money(limitMinor) : 'Set your budget', style: const TextStyle(color: Colors.white, fontSize: 33, fontWeight: FontWeight.w800)),
+          if (hasBudget) ...[
+            const SizedBox(height: 16),
+            LinearProgressIndicator(value: progress.clamp(0.0, 1.0).toDouble(), minHeight: 10, color: Colors.white, backgroundColor: Colors.white24),
+            const SizedBox(height: 12),
+            Text('${_money(remainingMinor.abs())} ${remainingMinor < 0 ? 'over budget' : 'left'} • ${(progress * 100).toStringAsFixed(0)}% used', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 6), Text('${_money(spentMinor)} spent • ${expenses.length} expenses', style: const TextStyle(color: Colors.white, fontSize: 12)),
+          ],
+          if (warning != null) Padding(padding: const EdgeInsets.only(top: 10), child: Text(warning, style: const TextStyle(color: Colors.white, fontSize: 12))),
+        ])),
         const SizedBox(height: 20),
         FilledButton.icon(
           onPressed: _saving ? null : () => _editBudget(budget),
@@ -551,10 +428,7 @@ class _MonthlyBudgetScreenState extends State<MonthlyBudgetScreen> {
         const SizedBox(height: 28),
         Text('Category budgets', style: Theme.of(context).textTheme.titleLarge),
         const SizedBox(height: 8),
-        const Text(
-          'Category limits are separate spending targets. '
-          'All expenses also count toward your overall monthly budget.',
-        ),
+        const Text('Tap a category to set or edit its limit.'),
         const SizedBox(height: 16),
         if (budget == null)
           const Text(
@@ -571,11 +445,14 @@ class _MonthlyBudgetScreenState extends State<MonthlyBudgetScreen> {
     return PopScope(
       canPop: !_saving,
       child: Scaffold(
-        appBar: AppBar(title: const Text('Monthly Budget')),
+        appBar: AppBar(title: const Text('Budgets')),
+        bottomNavigationBar: widget.onNavigate == null ? null : FlowBottomNav(selectedIndex: 2, onSelected: _saving ? null : widget.onNavigate),
+        floatingActionButtonLocation: const FlowFabLocation(),
+        floatingActionButton: widget.onOpenAdvisor == null ? null : FinnyButton(onPressed: widget.onOpenAdvisor),
         body: SafeArea(
           child: Center(
             child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 800),
+              constraints: const BoxConstraints(maxWidth: 480),
               child: StreamBuilder<MonthlyBudget?>(
                 key: ValueKey(MonthlyBudget.monthKey(_month)),
                 stream: _budgetStream,

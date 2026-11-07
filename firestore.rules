@@ -61,5 +61,25 @@ service cloud.firestore {
               == resource.data.createdAt
           && request.resource.data.updatedAt == request.time;
     }
+
+    match /users/{userId}/categories/{categoryId} {
+      allow read: if isOwner(userId);
+    }
+
+    match /users/{userId}/budgets/{budgetId} {
+      allow read: if isOwner(userId);
+    }
+
+    match /users/{userId}/plannedBills/{billId} {
+      allow read: if isOwner(userId);
+    }
+
+    match /users/{userId}/savingsGoals/{goalId} {
+      allow read: if isOwner(userId);
+    }
+
+    match /users/{userId}/savingsGoals/{goalId}/contributions/{contributionId} {
+      allow read: if isOwner(userId);
+    }
   }
 }

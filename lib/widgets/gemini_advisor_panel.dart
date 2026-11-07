@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import 'ripple_advisor_visuals.dart';
+
 import '../controllers/gemini_advisor_controller.dart';
 import '../models/advisor_snapshot.dart';
 
@@ -156,15 +158,11 @@ class _GeminiAdvisorPanelState extends State<GeminiAdvisorPanel> {
                 padding: const EdgeInsets.only(left: 20, right: 8, top: 4),
                 child: Row(
                   children: [
-                    Icon(
-                      Icons.auto_awesome_outlined,
-                      size: 21,
-                      color: colors.primary,
-                    ),
+                    const RippleMark(size: 30),
                     const SizedBox(width: 8),
                     const Expanded(
                       child: Text(
-                        'Gemini advisor',
+                        'Ripple',
                         style: TextStyle(
                           fontWeight: FontWeight.w600,
                           fontSize: 18,
@@ -297,7 +295,7 @@ class _GeminiAdvisorPanelState extends State<GeminiAdvisorPanel> {
                           },
                     icon: const Icon(Icons.auto_awesome_outlined, size: 18),
                     label: Text(switch (controller.mode) {
-                      AdvisorMode.advice => 'Ask Gemini',
+                      AdvisorMode.advice => 'Ask Ripple',
                       AdvisorMode.category => 'Preview category',
                       AdvisorMode.budget => 'Preview budget',
                       AdvisorMode.expense => 'Preview expense',
@@ -321,7 +319,30 @@ class _GeminiAdvisorPanelState extends State<GeminiAdvisorPanel> {
                   ),
                   if (controller.busy) ...[
                     const SizedBox(height: 16),
-                    const LinearProgressIndicator(),
+                    RippleReveal(
+                      child: Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: colors.primaryContainer.withValues(alpha: .35),
+                          borderRadius: BorderRadius.circular(24),
+                          border: Border.all(color: const Color(0xFF29CDE7)),
+                        ),
+                        child: const Row(
+                          children: [
+                            RippleMark(size: 32),
+                            SizedBox(width: 12),
+                            Expanded(
+                              child: Text('Ripple is finding your flow…'),
+                            ),
+                            SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                     const SizedBox(height: 8),
                     Semantics(
                       liveRegion: true,
@@ -467,16 +488,22 @@ class _GeminiAdvisorPanelState extends State<GeminiAdvisorPanel> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            const Text('Review new expense',
-                              style: TextStyle(fontWeight: FontWeight.w600)),
+                            const Text(
+                              'Review new expense',
+                              style: TextStyle(fontWeight: FontWeight.w600),
+                            ),
                             const SizedBox(height: 8),
                             Text('Title: ${expense.expense.title}'),
                             _amountRow('Amount', expense.expense.amountMinor),
                             Text('Category: ${expense.categoryName}'),
-                            Text('Date: ${expense.dateLabel}'
-                                '${expense.defaultDate ? ' (today)' : ''}'),
-                            Text('Payment: ${expense.expense.paymentMethod}'
-                                '${expense.defaultPayment ? ' (default)' : ''}'),
+                            Text(
+                              'Date: ${expense.dateLabel}'
+                              '${expense.defaultDate ? ' (today)' : ''}',
+                            ),
+                            Text(
+                              'Payment: ${expense.expense.paymentMethod}'
+                              '${expense.defaultPayment ? ' (default)' : ''}',
+                            ),
                             const Text('Note: Empty'),
                             const SizedBox(height: 12),
                             Wrap(
@@ -484,16 +511,29 @@ class _GeminiAdvisorPanelState extends State<GeminiAdvisorPanel> {
                               runSpacing: 8,
                               children: [
                                 FilledButton.icon(
-                                  onPressed: disabled ? null
-                                      : () => unawaited(controller.confirmExpense()),
+                                  onPressed: disabled
+                                      ? null
+                                      : () => unawaited(
+                                          controller.confirmExpense(),
+                                        ),
                                   icon: const Icon(Icons.check),
-                                  label: Text(controller.busy ? 'Saving…'
-                                      : controller.saveAttempted ? 'Retry confirm'
-                                      : 'Confirm expense'),
+                                  label: Text(
+                                    controller.busy
+                                        ? 'Saving…'
+                                        : controller.saveAttempted
+                                        ? 'Retry confirm'
+                                        : 'Confirm expense',
+                                  ),
                                 ),
                                 OutlinedButton(
-                                  onPressed: disabled ? null : controller.cancelExpense,
-                                  child: Text(controller.saveAttempted ? 'Dismiss preview' : 'Cancel'),
+                                  onPressed: disabled
+                                      ? null
+                                      : controller.cancelExpense,
+                                  child: Text(
+                                    controller.saveAttempted
+                                        ? 'Dismiss preview'
+                                        : 'Cancel',
+                                  ),
                                 ),
                               ],
                             ),
@@ -504,30 +544,12 @@ class _GeminiAdvisorPanelState extends State<GeminiAdvisorPanel> {
                   ],
                   if (advice && controller.answer != null) ...[
                     const SizedBox(height: 16),
-                    Card(
-                      margin: EdgeInsets.zero,
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            const Text(
-                              'Gemini’s explanation',
-                              style: TextStyle(fontWeight: FontWeight.w600),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(controller.answeredQuestion!),
-                            const Divider(height: 24),
-                            SelectableText(controller.answer!),
-                            const SizedBox(height: 12),
-                            Text(
-                              'Last answer · Check amounts against the recorded data '
-                              'used when you asked. No records were changed.',
-                              style: Theme.of(context).textTheme.bodySmall,
-                            ),
-                          ],
-                        ),
+                    RippleAnswerCard(
+                      key: ValueKey(
+                        '${controller.answeredQuestion}:${controller.answer}',
                       ),
+                      question: controller.answeredQuestion ?? '',
+                      answer: controller.answer!,
                     ),
                   ],
                   if (advice && controller.snapshot != null) ...[
