@@ -6,6 +6,9 @@ import 'package:flutter/foundation.dart';
 
 import '../models/advisor_snapshot.dart';
 import '../models/category_action.dart';
+import '../models/budget_action.dart';
+import '../services/advisor_budget_service.dart';
+import '../services/gemini_budget_planner.dart';
 import '../services/advisor_category_service.dart';
 import '../services/gemini_category_planner.dart';
 import '../services/advisor_data_service.dart';
@@ -23,6 +26,17 @@ typedef CategoryExecutor = Future<CategoryActionResult> Function(
   CategoryActionPreview preview,
 );
 
+typedef BudgetPlanner = Future<BudgetActionTarget?> Function(
+  String instruction,
+);
+typedef BudgetPreviewBuilder = Future<BudgetActionPreview> Function(
+  BudgetActionInput input,
+  BudgetActionTarget target,
+);
+typedef BudgetExecutor = Future<bool> Function(BudgetActionPreview preview);
+
+enum AdvisorMode { advice, category, budget }
+
 /// Owned by the signed-in Home screen, not by a temporary bottom-sheet route.
 /// Closing/reopening or expanding a panel therefore retains the same state.
 class GeminiAdvisorController extends ChangeNotifier {
@@ -32,12 +46,19 @@ class GeminiAdvisorController extends ChangeNotifier {
   final CategoryPlanner? _planCategory;
   final CategoryLookup? _findCategory;
   final CategoryExecutor? _createCategory;
-  bool _categoryMode = false;
+  final BudgetPlanner? _planBudget;
+  final BudgetPreviewBuilder? _buildBudgetPreview;
+  final BudgetExecutor? _saveBudget;
+  AdvisorMode _mode = AdvisorMode.advice;
+  BudgetActionPreview? _pendingBudget;
   CategoryActionPreview? _pendingCategory;
   String? _actionMessage;
   bool _saveAttempted = false;
 
-  bool get categoryMode => _categoryMode;
+  AdvisorMode get mode => _mode;
+  bool get categoryMode => _mode == AdvisorMode.category;
+  bool get budgetMode => _mode == AdvisorMode.budget;
+  BudgetActionPreview? get pendingBudget => _pendingBudget;
   CategoryActionPreview? get pendingCategory => _pendingCategory;
   String? get actionMessage => _actionMessage;
   bool get saveAttempted => _saveAttempted;
@@ -74,11 +95,17 @@ class GeminiAdvisorController extends ChangeNotifier {
     CategoryPlanner? planCategory,
     CategoryLookup? findCategory,
     CategoryExecutor? createCategory,
+    BudgetPlanner? planBudget,
+    BudgetPreviewBuilder? buildBudgetPreview,
+    BudgetExecutor? saveBudget,
   }) : _load = load,
        _ask = ask,
        _planCategory = planCategory,
        _findCategory = findCategory,
        _createCategory = createCategory,
+       _planBudget = planBudget,
+       _buildBudgetPreview = buildBudgetPreview,
+       _saveBudget = saveBudget,
        _sessionValid = initialUserId == userId {
     if (!_sessionValid) {
       _error = 'Your session changed. Close the advisor and sign in again.';
@@ -94,6 +121,8 @@ class GeminiAdvisorController extends ChangeNotifier {
     final advisor = GeminiAdvisorService(userId: userId);
     final planner = GeminiCategoryPlanner(userId: userId);
     final categories = AdvisorCategoryService(userId: userId);
+    final budgetPlanner = GeminiBudgetPlanner(userId: userId);
+    final budgets = AdvisorBudgetService(userId: userId);
     return GeminiAdvisorController(
       userId: userId,
       load: data.load,
@@ -101,6 +130,9 @@ class GeminiAdvisorController extends ChangeNotifier {
       planCategory: planner.plan,
       findCategory: categories.findExisting,
       createCategory: categories.createConfirmed,
+      planBudget: budgetPlanner.plan,
+      buildBudgetPreview: budgets.preview,
+      saveBudget: budgets.confirm,
       initialUserId: auth.currentUser?.uid,
       sessionChanges: auth.authStateChanges().map((user) => user?.uid),
     );
@@ -116,6 +148,7 @@ class GeminiAdvisorController extends ChangeNotifier {
   void setDraft(String value) {
     if (_disposed || !_sessionValid || _busy || value == _draft) return;
     _draft = value;
+    _pendingBudget = null;
     _pendingCategory = null;
     _actionMessage = null;
     _saveAttempted = false;
@@ -123,12 +156,20 @@ class GeminiAdvisorController extends ChangeNotifier {
   }
 
   Future<void> refresh() => _run(ask: false);
-  Future<void> send() => _categoryMode ? _prepareCategory() : _run(ask: true);
+  Future<void> send() => switch (_mode) {
+    AdvisorMode.advice => _run(ask: true),
+    AdvisorMode.category => _prepareCategory(),
+    AdvisorMode.budget => _prepareBudget(),
+  };
 
-  void setCategoryMode(bool value) {
-    if (_disposed || !_sessionValid || _busy || value == _categoryMode) return;
-    _categoryMode = value;
+  void setCategoryMode(bool value) =>
+      setMode(value ? AdvisorMode.category : AdvisorMode.advice);
+
+  void setMode(AdvisorMode value) {
+    if (_disposed || !_sessionValid || _busy || value == _mode) return;
+    _mode = value;
     _pendingCategory = null;
+    _pendingBudget = null;
     _actionMessage = null;
     _saveAttempted = false;
     _error = null;
@@ -245,6 +286,101 @@ class GeminiAdvisorController extends ChangeNotifier {
     }
   }
 
+  void cancelBudget() {
+    if (_disposed || !_sessionValid || _busy || _pendingBudget == null) return;
+    _pendingBudget = null;
+    _actionMessage = _saveAttempted
+        ? 'Preview dismissed. Check the monthly budget for the result of any attempted save.'
+        : 'Budget preview cancelled.';
+    _saveAttempted = false;
+    _error = null;
+    notifyListeners();
+  }
+
+  Future<void> _prepareBudget() async {
+    if (_disposed || !_sessionValid || _busy) return;
+    final plan = _planBudget;
+    final build = _buildBudgetPreview;
+    if (plan == null || build == null) return;
+    final request = ++_request;
+    _pendingBudget = null;
+    _actionMessage = null;
+    _error = null;
+    _saveAttempted = false;
+    _busy = true;
+    _stage = 'Preparing budget preview';
+    notifyListeners();
+    try {
+      if (_draft.trim().isEmpty || _draft.length > 1000) {
+        throw const FormatException('Enter a request of 1–1000 characters.');
+      }
+      final input = BudgetActionInput.parse(_draft, now: DateTime.now());
+      final target = await plan(input.instruction)
+          .timeout(const Duration(seconds: 90));
+      if (!_isCurrent(request)) return;
+      if (target == null) {
+        _actionMessage = 'Specify one budget limit in rupees. Use this month or a YYYY-MM date.';
+        return;
+      }
+      final preview = await build(
+        input,
+        target,
+      ).timeout(const Duration(seconds: 60));
+      if (_isCurrent(request)) _pendingBudget = preview;
+    } catch (error) {
+      if (_isCurrent(request)) _error = _errorText(error);
+    } finally {
+      if (_isCurrent(request)) {
+        _busy = false;
+        notifyListeners();
+      }
+    }
+  }
+
+  Future<void> confirmBudget() async {
+    final preview = _pendingBudget;
+    final save = _saveBudget;
+    if (_disposed ||
+        !_sessionValid ||
+        _busy ||
+        !budgetMode ||
+        preview == null ||
+        save == null ||
+        preview.userId != userId)
+      return;
+    final request = ++_request;
+    _busy = true;
+    _saveAttempted = true;
+    _error = null;
+    _stage = 'Saving budget limit';
+    notifyListeners();
+    try {
+      final changed = await save(preview);
+      if (!_isCurrent(request)) return;
+      _pendingBudget = null;
+      _saveAttempted = false;
+      final amount = advisorMoney(preview.proposedMinor);
+      _actionMessage = changed
+          ? 'Saved ${preview.targetName} for ${preview.monthKey} at $amount.'
+          : '${preview.targetName} for ${preview.monthKey} is already $amount.';
+    } on BudgetPreviewChanged {
+      if (!_isCurrent(request)) return;
+      _pendingBudget = null;
+      _saveAttempted = false;
+      _error = 'The budget or category changed. Preview the request again before saving.';
+    } catch (error) {
+      if (_isCurrent(request)) {
+        _error =
+            '${_errorText(error)} Save could not be confirmed. Retry this preview to recheck it.';
+      }
+    } finally {
+      if (_isCurrent(request)) {
+        _busy = false;
+        notifyListeners();
+      }
+    }
+  }
+
   void invalidateSession() {
     if (_disposed || !_sessionValid) return;
     _request++;
@@ -254,6 +390,7 @@ class GeminiAdvisorController extends ChangeNotifier {
     _answer = null;
     _answeredQuestion = null;
     _draft = '';
+    _pendingBudget = null;
     _pendingCategory = null;
     _actionMessage = null;
     _saveAttempted = false;
@@ -352,6 +489,7 @@ class GeminiAdvisorController extends ChangeNotifier {
     _answer = null;
     _answeredQuestion = null;
     _draft = '';
+    _pendingBudget = null;
     _pendingCategory = null;
     _actionMessage = null;
     super.dispose();

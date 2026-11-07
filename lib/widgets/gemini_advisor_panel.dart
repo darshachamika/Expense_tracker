@@ -133,6 +133,8 @@ class _GeminiAdvisorPanelState extends State<GeminiAdvisorPanel> {
       listenable: controller,
       builder: (context, _) {
         final colors = Theme.of(context).colorScheme;
+        final advice = controller.mode == AdvisorMode.advice;
+        final budget = controller.pendingBudget;
         final disabled = controller.busy || !controller.sessionValid;
         return Column(
           children: [
@@ -204,7 +206,7 @@ class _GeminiAdvisorPanelState extends State<GeminiAdvisorPanel> {
                     children: [
                       ChoiceChip(
                         label: const Text('Advice'),
-                        selected: !controller.categoryMode,
+                        selected: advice,
                         onSelected: disabled
                             ? null
                             : (_) => controller.setCategoryMode(false),
@@ -216,10 +218,17 @@ class _GeminiAdvisorPanelState extends State<GeminiAdvisorPanel> {
                             ? null
                             : (_) => controller.setCategoryMode(true),
                       ),
+                      ChoiceChip(
+                        label: const Text('Update budget'),
+                        selected: controller.budgetMode,
+                        onSelected: disabled
+                            ? null
+                            : (_) => controller.setMode(AdvisorMode.budget),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 8),
-                  if (!controller.categoryMode)
+                  if (advice)
                     SingleChildScrollView(
                       scrollDirection: Axis.horizontal,
                       child: Row(
@@ -256,12 +265,13 @@ class _GeminiAdvisorPanelState extends State<GeminiAdvisorPanel> {
                     maxLength: 1000,
                     scrollPadding: const EdgeInsets.all(32),
                     decoration: InputDecoration(
-                      hintText: controller.categoryMode
-                          ? 'Gym කියලා category එකක් හදන්න'
-                          : 'Ask about your spending…',
-                      labelText: controller.categoryMode
-                          ? 'Category request'
-                          : 'Your question',
+                      hintText: switch (controller.mode) {
+                        AdvisorMode.advice => 'Ask about your spending…',
+                        AdvisorMode.category => 'Gym කියලා category එකක් හදන්න',
+                        AdvisorMode.budget =>
+                          'Set this month’s Food budget to Rs. 8,000',
+                      },
+                      labelText: advice ? 'Your question' : 'Action request',
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(16),
                       ),
@@ -275,15 +285,17 @@ class _GeminiAdvisorPanelState extends State<GeminiAdvisorPanel> {
                             unawaited(controller.send());
                           },
                     icon: const Icon(Icons.auto_awesome_outlined, size: 18),
-                    label: Text(
-                      controller.categoryMode
-                          ? 'Preview category'
-                          : 'Ask Gemini',
-                    ),
+                    label: Text(switch (controller.mode) {
+                      AdvisorMode.advice => 'Ask Gemini',
+                      AdvisorMode.category => 'Preview category',
+                      AdvisorMode.budget => 'Preview budget',
+                    }),
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    controller.categoryMode
+                    controller.budgetMode
+                        ? 'Review the month, limit and amount before saving.'
+                        : controller.categoryMode
                         ? 'Preview sends only your request to Gemini to extract a name. '
                               'No record is created until you press Confirm create.'
                         : 'Ask sends your question, financial summaries and category, '
@@ -309,7 +321,7 @@ class _GeminiAdvisorPanelState extends State<GeminiAdvisorPanel> {
                         style: TextStyle(color: colors.error),
                       ),
                     ),
-                    if (!controller.categoryMode && !disabled)
+                    if (advice && !disabled)
                       Align(
                         alignment: Alignment.centerLeft,
                         child: TextButton.icon(
@@ -319,8 +331,7 @@ class _GeminiAdvisorPanelState extends State<GeminiAdvisorPanel> {
                         ),
                       ),
                   ],
-                  if (controller.categoryMode &&
-                      controller.actionMessage != null) ...[
+                  if (!advice && controller.actionMessage != null) ...[
                     const SizedBox(height: 12),
                     Semantics(
                       liveRegion: true,
@@ -381,8 +392,57 @@ class _GeminiAdvisorPanelState extends State<GeminiAdvisorPanel> {
                       ),
                     ),
                   ],
-                  if (!controller.categoryMode &&
-                      controller.answer != null) ...[
+                  if (controller.budgetMode && budget != null) ...[
+                    const SizedBox(height: 16),
+                    Card(
+                      margin: EdgeInsets.zero,
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            const Text(
+                              'Review budget update',
+                              style: TextStyle(fontWeight: FontWeight.w600),
+                            ),
+                            const SizedBox(height: 8),
+                            Text('${budget.monthKey} · ${budget.targetName}'),
+                            _amountRow('Current limit', budget.previousMinor),
+                            _amountRow('Proposed limit', budget.proposedMinor),
+                            const SizedBox(height: 12),
+                            Wrap(
+                              spacing: 12,
+                              runSpacing: 8,
+                              children: [
+                                FilledButton.icon(
+                                  onPressed: disabled
+                                      ? null
+                                      : () => unawaited(
+                                          controller.confirmBudget(),
+                                        ),
+                                  icon: const Icon(Icons.check),
+                                  label: Text(
+                                    controller.busy
+                                        ? 'Saving…'
+                                        : controller.saveAttempted
+                                        ? 'Retry confirm'
+                                        : 'Confirm update',
+                                  ),
+                                ),
+                                OutlinedButton(
+                                  onPressed: disabled
+                                      ? null
+                                      : controller.cancelBudget,
+                                  child: const Text('Cancel'),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                  if (advice && controller.answer != null) ...[
                     const SizedBox(height: 16),
                     Card(
                       margin: EdgeInsets.zero,
@@ -410,14 +470,11 @@ class _GeminiAdvisorPanelState extends State<GeminiAdvisorPanel> {
                       ),
                     ),
                   ],
-                  if (!controller.categoryMode &&
-                      controller.snapshot != null) ...[
+                  if (advice && controller.snapshot != null) ...[
                     const SizedBox(height: 12),
                     _facts(controller.snapshot!),
                   ],
-                  if (!controller.categoryMode &&
-                      !controller.busy &&
-                      controller.sessionValid)
+                  if (advice && !controller.busy && controller.sessionValid)
                     Align(
                       alignment: Alignment.centerLeft,
                       child: TextButton.icon(

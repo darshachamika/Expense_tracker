@@ -263,10 +263,23 @@ void main() {
       );
       await tester.tap(find.text('Open advisor'));
       await tester.pumpAndSettle();
-      await tester.enterText(
-        find.byKey(const ValueKey('advisor-question')),
-        'Test question',
+      final questionField = find.byKey(const ValueKey('advisor-question'));
+      final verticalList = find.descendant(
+        of: find.byType(GeminiAdvisorSheet),
+        matching: find.byWidgetPredicate(
+          (widget) =>
+              widget is Scrollable &&
+              widget.axisDirection == AxisDirection.down,
+        ),
       );
+
+      await tester.scrollUntilVisible(
+        questionField,
+        80,
+        scrollable: verticalList,
+      );
+      await tester.pumpAndSettle();
+      await tester.enterText(questionField, 'Test question');
       tester.view.viewInsets = FakeViewPadding(bottom: 220);
       addTearDown(tester.view.resetViewInsets);
       await tester.pumpAndSettle();
