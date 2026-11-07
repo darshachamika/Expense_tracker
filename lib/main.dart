@@ -28,6 +28,7 @@ Future<void> _initializeFirebase() async {
     // Configure App Check for the current Edge/web testing step.
     if (kIsWeb) {
       const siteKey = String.fromEnvironment('APP_CHECK_RECAPTCHA_SITE_KEY');
+      const debugToken = String.fromEnvironment('APP_CHECK_WEB_DEBUG_TOKEN');
 
       if (!kDebugMode && siteKey.isEmpty) {
         throw StateError(
@@ -37,7 +38,9 @@ Future<void> _initializeFirebase() async {
 
       await FirebaseAppCheck.instance.activate(
         providerWeb: kDebugMode
-            ? WebDebugProvider()
+            ? WebDebugProvider(
+                debugToken: debugToken.isEmpty ? null : debugToken,
+              )
             : ReCaptchaV3Provider(siteKey),
       );
     }
