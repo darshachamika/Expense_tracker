@@ -135,7 +135,9 @@ class _GeminiAdvisorPanelState extends State<GeminiAdvisorPanel> {
         final colors = Theme.of(context).colorScheme;
         final advice = controller.mode == AdvisorMode.advice;
         final budget = controller.pendingBudget;
+        final expense = controller.pendingExpense;
         final disabled = controller.busy || !controller.sessionValid;
+        final requestDisabled = disabled || controller.expenseRetryRequired;
         return Column(
           children: [
             if (widget.compact) ...[
@@ -207,23 +209,30 @@ class _GeminiAdvisorPanelState extends State<GeminiAdvisorPanel> {
                       ChoiceChip(
                         label: const Text('Advice'),
                         selected: advice,
-                        onSelected: disabled
+                        onSelected: requestDisabled
                             ? null
                             : (_) => controller.setCategoryMode(false),
                       ),
                       ChoiceChip(
                         label: const Text('Create category'),
                         selected: controller.categoryMode,
-                        onSelected: disabled
+                        onSelected: requestDisabled
                             ? null
                             : (_) => controller.setCategoryMode(true),
                       ),
                       ChoiceChip(
                         label: const Text('Update budget'),
                         selected: controller.budgetMode,
-                        onSelected: disabled
+                        onSelected: requestDisabled
                             ? null
                             : (_) => controller.setMode(AdvisorMode.budget),
+                      ),
+                      ChoiceChip(
+                        label: const Text('Add expense'),
+                        selected: controller.expenseMode,
+                        onSelected: requestDisabled
+                            ? null
+                            : (_) => controller.setMode(AdvisorMode.expense),
                       ),
                     ],
                   ),
@@ -259,7 +268,7 @@ class _GeminiAdvisorPanelState extends State<GeminiAdvisorPanel> {
                     key: const ValueKey('advisor-question'),
                     controller: _question,
                     onChanged: controller.setDraft,
-                    enabled: !disabled,
+                    enabled: !requestDisabled,
                     minLines: 1,
                     maxLines: 3,
                     maxLength: 1000,
@@ -270,6 +279,8 @@ class _GeminiAdvisorPanelState extends State<GeminiAdvisorPanel> {
                         AdvisorMode.category => 'Gym කියලා category එකක් හදන්න',
                         AdvisorMode.budget =>
                           'Set this month’s Food budget to Rs. 8,000',
+                        AdvisorMode.expense =>
+                          'Add lunch Rs. 650 to Food today using cash',
                       },
                       labelText: advice ? 'Your question' : 'Action request',
                       border: OutlineInputBorder(
@@ -278,7 +289,7 @@ class _GeminiAdvisorPanelState extends State<GeminiAdvisorPanel> {
                     ),
                   ),
                   FilledButton.icon(
-                    onPressed: disabled
+                    onPressed: requestDisabled
                         ? null
                         : () {
                             FocusScope.of(context).unfocus();
@@ -289,11 +300,16 @@ class _GeminiAdvisorPanelState extends State<GeminiAdvisorPanel> {
                       AdvisorMode.advice => 'Ask Gemini',
                       AdvisorMode.category => 'Preview category',
                       AdvisorMode.budget => 'Preview budget',
+                      AdvisorMode.expense => 'Preview expense',
                     }),
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    controller.budgetMode
+                    controller.expenseMode
+                        ? 'Preview sends your request to Gemini to extract expense details. '
+                              'An omitted date uses today and omitted payment uses Cash. '
+                              'Review all fields before confirming.'
+                        : controller.budgetMode
                         ? 'Review the month, limit and amount before saving.'
                         : controller.categoryMode
                         ? 'Preview sends only your request to Gemini to extract a name. '
@@ -434,6 +450,50 @@ class _GeminiAdvisorPanelState extends State<GeminiAdvisorPanel> {
                                       ? null
                                       : controller.cancelBudget,
                                   child: const Text('Cancel'),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                  if (controller.expenseMode && expense != null) ...[
+                    const SizedBox(height: 16),
+                    Card(
+                      margin: EdgeInsets.zero,
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            const Text('Review new expense',
+                              style: TextStyle(fontWeight: FontWeight.w600)),
+                            const SizedBox(height: 8),
+                            Text('Title: ${expense.expense.title}'),
+                            _amountRow('Amount', expense.expense.amountMinor),
+                            Text('Category: ${expense.categoryName}'),
+                            Text('Date: ${expense.dateLabel}'
+                                '${expense.defaultDate ? ' (today)' : ''}'),
+                            Text('Payment: ${expense.expense.paymentMethod}'
+                                '${expense.defaultPayment ? ' (default)' : ''}'),
+                            const Text('Note: Empty'),
+                            const SizedBox(height: 12),
+                            Wrap(
+                              spacing: 12,
+                              runSpacing: 8,
+                              children: [
+                                FilledButton.icon(
+                                  onPressed: disabled ? null
+                                      : () => unawaited(controller.confirmExpense()),
+                                  icon: const Icon(Icons.check),
+                                  label: Text(controller.busy ? 'Saving…'
+                                      : controller.saveAttempted ? 'Retry confirm'
+                                      : 'Confirm expense'),
+                                ),
+                                OutlinedButton(
+                                  onPressed: disabled ? null : controller.cancelExpense,
+                                  child: Text(controller.saveAttempted ? 'Dismiss preview' : 'Cancel'),
                                 ),
                               ],
                             ),

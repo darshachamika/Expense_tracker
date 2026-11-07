@@ -5,8 +5,11 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 
 import '../models/advisor_snapshot.dart';
-import '../models/category_action.dart';
 import '../models/budget_action.dart';
+import '../models/category_action.dart';
+import '../models/expense_action.dart';
+import '../services/advisor_expense_service.dart';
+import '../services/gemini_expense_planner.dart';
 import '../services/advisor_budget_service.dart';
 import '../services/gemini_budget_planner.dart';
 import '../services/advisor_category_service.dart';
@@ -35,7 +38,16 @@ typedef BudgetPreviewBuilder = Future<BudgetActionPreview> Function(
 );
 typedef BudgetExecutor = Future<bool> Function(BudgetActionPreview preview);
 
-enum AdvisorMode { advice, category, budget }
+typedef ExpensePlanner = Future<ExpenseActionPlan?> Function(
+  ExpenseActionInput input,
+);
+typedef ExpensePreviewBuilder = Future<ExpenseActionPreview> Function(
+  ExpenseActionInput input,
+  ExpenseActionPlan plan,
+);
+typedef ExpenseExecutor = Future<bool> Function(ExpenseActionPreview preview);
+
+enum AdvisorMode { advice, category, budget, expense }
 
 /// Owned by the signed-in Home screen, not by a temporary bottom-sheet route.
 /// Closing/reopening or expanding a panel therefore retains the same state.
@@ -49,11 +61,19 @@ class GeminiAdvisorController extends ChangeNotifier {
   final BudgetPlanner? _planBudget;
   final BudgetPreviewBuilder? _buildBudgetPreview;
   final BudgetExecutor? _saveBudget;
+  final ExpensePlanner? _planExpense;
+  final ExpensePreviewBuilder? _buildExpensePreview;
+  final ExpenseExecutor? _saveExpense;
+  ExpenseActionPreview? _pendingExpense;
   AdvisorMode _mode = AdvisorMode.advice;
   BudgetActionPreview? _pendingBudget;
   CategoryActionPreview? _pendingCategory;
   String? _actionMessage;
   bool _saveAttempted = false;
+
+  bool get expenseMode => _mode == AdvisorMode.expense;
+  ExpenseActionPreview? get pendingExpense => _pendingExpense;
+  bool get expenseRetryRequired => _pendingExpense != null && _saveAttempted;
 
   AdvisorMode get mode => _mode;
   bool get categoryMode => _mode == AdvisorMode.category;
@@ -98,6 +118,9 @@ class GeminiAdvisorController extends ChangeNotifier {
     BudgetPlanner? planBudget,
     BudgetPreviewBuilder? buildBudgetPreview,
     BudgetExecutor? saveBudget,
+    ExpensePlanner? planExpense,
+    ExpensePreviewBuilder? buildExpensePreview,
+    ExpenseExecutor? saveExpense,
   }) : _load = load,
        _ask = ask,
        _planCategory = planCategory,
@@ -106,6 +129,9 @@ class GeminiAdvisorController extends ChangeNotifier {
        _planBudget = planBudget,
        _buildBudgetPreview = buildBudgetPreview,
        _saveBudget = saveBudget,
+       _planExpense = planExpense,
+       _buildExpensePreview = buildExpensePreview,
+       _saveExpense = saveExpense,
        _sessionValid = initialUserId == userId {
     if (!_sessionValid) {
       _error = 'Your session changed. Close the advisor and sign in again.';
@@ -123,6 +149,8 @@ class GeminiAdvisorController extends ChangeNotifier {
     final categories = AdvisorCategoryService(userId: userId);
     final budgetPlanner = GeminiBudgetPlanner(userId: userId);
     final budgets = AdvisorBudgetService(userId: userId);
+    final expensePlanner = GeminiExpensePlanner(userId: userId);
+    final expenses = AdvisorExpenseService(userId: userId);
     return GeminiAdvisorController(
       userId: userId,
       load: data.load,
@@ -133,6 +161,9 @@ class GeminiAdvisorController extends ChangeNotifier {
       planBudget: budgetPlanner.plan,
       buildBudgetPreview: budgets.preview,
       saveBudget: budgets.confirm,
+      planExpense: expensePlanner.plan,
+      buildExpensePreview: expenses.preview,
+      saveExpense: expenses.confirm,
       initialUserId: auth.currentUser?.uid,
       sessionChanges: auth.authStateChanges().map((user) => user?.uid),
     );
@@ -146,10 +177,14 @@ class GeminiAdvisorController extends ChangeNotifier {
   }
 
   void setDraft(String value) {
-    if (_disposed || !_sessionValid || _busy || value == _draft) return;
+    if (_disposed || !_sessionValid || _busy || expenseRetryRequired ||
+        value == _draft) {
+      return;
+    }
     _draft = value;
     _pendingBudget = null;
     _pendingCategory = null;
+    _pendingExpense = null;
     _actionMessage = null;
     _saveAttempted = false;
     notifyListeners();
@@ -160,16 +195,21 @@ class GeminiAdvisorController extends ChangeNotifier {
     AdvisorMode.advice => _run(ask: true),
     AdvisorMode.category => _prepareCategory(),
     AdvisorMode.budget => _prepareBudget(),
+    AdvisorMode.expense => _prepareExpense(),
   };
 
   void setCategoryMode(bool value) =>
       setMode(value ? AdvisorMode.category : AdvisorMode.advice);
 
   void setMode(AdvisorMode value) {
-    if (_disposed || !_sessionValid || _busy || value == _mode) return;
+    if (_disposed || !_sessionValid || _busy || expenseRetryRequired ||
+        value == _mode) {
+      return;
+    }
     _mode = value;
     _pendingCategory = null;
     _pendingBudget = null;
+    _pendingExpense = null;
     _actionMessage = null;
     _saveAttempted = false;
     _error = null;
@@ -381,6 +421,105 @@ class GeminiAdvisorController extends ChangeNotifier {
     }
   }
 
+  void cancelExpense() {
+    if (_disposed || !_sessionValid || _busy || _pendingExpense == null) return;
+    _pendingExpense = null;
+    _actionMessage = _saveAttempted
+        ? 'Preview dismissed. Check your expense list before submitting again. '
+              'An attempted save may already have completed.'
+        : 'Expense preview cancelled.';
+    _saveAttempted = false;
+    _error = null;
+    notifyListeners();
+  }
+
+  Future<void> _prepareExpense() async {
+    if (_disposed || !_sessionValid || _busy || expenseRetryRequired) return;
+    final plan = _planExpense;
+    final build = _buildExpensePreview;
+    if (plan == null || build == null) {
+      _error = 'Expense actions are not configured.';
+      notifyListeners();
+      return;
+    }
+    final request = ++_request;
+    _pendingExpense = null;
+    _actionMessage = null;
+    _error = null;
+    _saveAttempted = false;
+    _busy = true;
+    _stage = 'Preparing expense preview';
+    notifyListeners();
+    try {
+      final input = ExpenseActionInput.parse(_draft, now: DateTime.now());
+      final proposal = await plan(input).timeout(const Duration(seconds: 90));
+      if (!_isCurrent(request)) return;
+      if (proposal == null) {
+        _actionMessage = 'Specify one expense title, rupee amount and active category. '
+            'Use today or YYYY-MM-DD. Payment can be cash, card or bank.';
+        return;
+      }
+      final preview = await build(
+        input, proposal,
+      ).timeout(const Duration(seconds: 60));
+      if (!_isCurrent(request)) return;
+      preview.validate(userId, DateTime.now());
+      _pendingExpense = preview;
+    } catch (error) {
+      if (_isCurrent(request)) _error = _errorText(error);
+    } finally {
+      if (_isCurrent(request)) {
+        _busy = false;
+        notifyListeners();
+      }
+    }
+  }
+
+  Future<void> confirmExpense() async {
+    final preview = _pendingExpense;
+    final save = _saveExpense;
+    if (_disposed || !_sessionValid || _busy || !expenseMode ||
+        preview == null || save == null || preview.userId != userId) {
+      return;
+    }
+    final request = ++_request;
+    _busy = true;
+    _saveAttempted = true;
+    _error = null;
+    _stage = 'Saving expense';
+    notifyListeners();
+    try {
+      // Keep the original document ID and disable controls until the write ends.
+      final created = await save(preview);
+      if (!_isCurrent(request)) return;
+      _pendingExpense = null;
+      _saveAttempted = false;
+      _draft = '';
+      _snapshot = null;
+      _answer = null;
+      _answeredQuestion = null;
+      _actionMessage = created
+          ? 'Expense saved: ${preview.expense.title} · ${advisorMoney(preview.expense.amountMinor)}.'
+          : 'This expense preview was already saved. Check your expense list.';
+    } on ExpensePreviewChanged {
+      if (!_isCurrent(request)) return;
+      _pendingExpense = null;
+      _saveAttempted = false;
+      _error = 'The category changed. Preview the expense again before saving.';
+    } catch (error) {
+      if (_isCurrent(request)) {
+        _error = '${_errorText(error)} Save could not be confirmed. '
+            'Retry this same preview to check its result. '
+            'Before dismissing it, check your expense list.';
+      }
+    } finally {
+      if (_isCurrent(request)) {
+        _busy = false;
+        notifyListeners();
+      }
+    }
+  }
+
   void invalidateSession() {
     if (_disposed || !_sessionValid) return;
     _request++;
@@ -392,6 +531,7 @@ class GeminiAdvisorController extends ChangeNotifier {
     _draft = '';
     _pendingBudget = null;
     _pendingCategory = null;
+    _pendingExpense = null;
     _actionMessage = null;
     _saveAttempted = false;
     _error = 'Your session changed. Close the advisor and sign in again.';
@@ -491,6 +631,7 @@ class GeminiAdvisorController extends ChangeNotifier {
     _draft = '';
     _pendingBudget = null;
     _pendingCategory = null;
+    _pendingExpense = null;
     _actionMessage = null;
     super.dispose();
   }
