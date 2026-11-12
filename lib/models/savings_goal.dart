@@ -33,6 +33,20 @@ class SavingsGoal {
     return (savedMinor / targetMinor).clamp(0.0, 1.0).toDouble();
   }
 
+  /// Counts calendar months from the current month through the target month.
+  /// Returns null for a missing or past deadline.
+  int? savingMonthsLeft({DateTime? now}) {
+    final deadline = targetDate?.toLocal();
+    if (deadline == null) return null;
+
+    final current = (now ?? DateTime.now()).toLocal();
+    final today = DateTime(current.year, current.month, current.day);
+    final dueDate = DateTime(deadline.year, deadline.month, deadline.day);
+    if (dueDate.isBefore(today)) return null;
+
+    return (dueDate.year - today.year) * 12 + dueDate.month - today.month + 1;
+  }
+
   /// Includes the current calendar month as a saving opportunity.
   ///
   /// Returns:
@@ -43,19 +57,19 @@ class SavingsGoal {
     final remaining = remainingMinor(savedMinor);
     if (remaining == 0) return 0;
 
-    final deadline = targetDate?.toLocal();
-    if (deadline == null) return null;
+    final months = savingMonthsLeft(now: now);
+    return months == null ? null : (remaining + months - 1) ~/ months;
+  }
 
-    final current = (now ?? DateTime.now()).toLocal();
-    final today = DateTime(current.year, current.month, current.day);
-    final dueDate = DateTime(deadline.year, deadline.month, deadline.day);
+  /// Amount to save over the next 12 saving months at the current pace.
+  /// Shorter plans are capped at the amount still needed for the goal.
+  int? nextTwelveMonthsRequiredMinor({required int savedMinor, DateTime? now}) {
+    final monthly = monthlyRequiredMinor(savedMinor: savedMinor, now: now);
+    if (monthly == null) return null;
 
-    if (dueDate.isBefore(today)) return null;
-
-    final months =
-        (dueDate.year - today.year) * 12 + dueDate.month - today.month + 1;
-
-    return (remaining + months - 1) ~/ months;
+    final remaining = remainingMinor(savedMinor);
+    final annual = monthly * 12;
+    return annual < remaining ? annual : remaining;
   }
 
   factory SavingsGoal.fromFirestore(

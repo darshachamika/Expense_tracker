@@ -5,6 +5,7 @@ import '../widgets/flow_visuals.dart';
 import '../models/savings_goal.dart';
 import '../models/savings_contribution.dart';
 import '../widgets/flow_format.dart';
+import '../widgets/flow_goal_savings_plan.dart';
 import '../services/savings_service.dart';
 import 'edit_savings_goal_screen.dart';
 import 'savings_goal_details_screen.dart';
@@ -136,6 +137,14 @@ class _SavingsGoalsScreenState extends State<SavingsGoalsScreen> {
         const SizedBox(height: 8), Text('${(goal.progress(saved) * 100).round()}% saved', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
       ],
       if (goal.targetDate != null) Padding(padding: const EdgeInsets.only(top: 6), child: Text('Target ${FlowFormat.shortDate(goal.targetDate!)} ${goal.targetDate!.year}', style: const TextStyle(fontSize: 11))),
+      if (!goal.archived && saved != null && !_progressErrors.contains(goal.id)) ...[
+        const SizedBox(height: 12),
+        FlowGoalSavingsPlan(
+          key: ValueKey(goal.id),
+          goal: goal,
+          savedMinor: saved,
+        ),
+      ],
       const SizedBox(height: 12),
       FilledButton.tonalIcon(onPressed: _busy ? null : () => _openGoal(goal), icon: Icon(goal.archived ? Icons.history : Icons.add), label: Text(goal.archived ? 'View savings' : 'Add savings')),
     ])));
