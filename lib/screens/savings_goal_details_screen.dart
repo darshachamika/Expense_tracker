@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/savings_contribution.dart';
 import '../models/savings_goal.dart';
 import '../services/savings_service.dart';
+import '../widgets/flow_goal_savings_plan.dart';
 
 String _money(int minor) {
   return 'Rs. ${minor ~/ 100}.'
@@ -165,9 +166,6 @@ class _SavingsGoalDetailsScreenState extends State<SavingsGoalDetailsScreen> {
       (total, contribution) => total + contribution.amountMinor,
     );
 
-    final completed = goal.isCompleted(savedMinor);
-    final monthlyRequired = goal.monthlyRequiredMinor(savedMinor: savedMinor);
-
     return ListView(
       padding: const EdgeInsets.all(24),
       children: [
@@ -199,27 +197,13 @@ class _SavingsGoalDetailsScreenState extends State<SavingsGoalDetailsScreen> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  completed
+                  goal.archived && goal.isCompleted(savedMinor)
                       ? 'Goal completed!'
                       : '${(goal.progress(savedMinor) * 100).toStringAsFixed(1)}% saved',
                 ),
-                if (!completed && monthlyRequired != null) ...[
+                if (!goal.archived) ...[
                   const SizedBox(height: 16),
-                  Text(
-                    'Save ${_money(monthlyRequired)} per month '
-                    'to reach your target.',
-                  ),
-                  const SizedBox(height: 4),
-                  const Text('Estimate includes the current calendar month.'),
-                ],
-                if (!completed &&
-                    goal.targetDate != null &&
-                    monthlyRequired == null) ...[
-                  const SizedBox(height: 16),
-                  const Text(
-                    'The target date has passed. '
-                    'Edit the goal to choose a new date.',
-                  ),
+                  FlowGoalSavingsPlan(goal: goal, savedMinor: savedMinor),
                 ],
               ],
             ),
